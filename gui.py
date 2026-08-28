@@ -3,7 +3,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, font as tkfont, messagebox, ttk
+from tkinter import filedialog, font as tkfont, messagebox, simpledialog, ttk
 
 import backup
 import operations as ops
@@ -909,9 +909,16 @@ class ProductsView(tk.Frame):
             row=1, column=10, padx=10
         )
 
-        AccentButton(form, text="Add Product", command=self._add).grid(
-            row=1, column=12, padx=10, rowspan=2
-        )
+        acc = tk.Frame(form, bg=PANEL)
+        acc.grid(row=1, column=12, rowspan=2, padx=10)
+        AccentButton(acc, text="Add Product", command=self._add).pack(pady=2)
+        AccentButton(acc, text="Save Changes", command=self._edit,
+                     bg=PANEL2).pack(pady=2)
+        AccentButton(acc, text="Restock", command=self._restock,
+                     bg=PANEL2).pack(pady=2)
+        AccentButton(acc, text="Delete", command=self._delete,
+                     bg=DANGER).pack(pady=2)
+        self._editing_id = None
 
         # list
         cols = ("id", "name", "category", "code", "price", "cost", "stock")
@@ -929,33 +936,108 @@ class ProductsView(tk.Frame):
         self.tree.pack(fill="both", expand=True, padx=10, pady=10)
         self.tree.tag_configure("low", foreground=WARN)
         self.tree.tag_configure("out", foreground=DANGER)
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
         self._refresh()
 
-    def _add(self):
-        def parse_int(s, what):
-            s = s.strip().replace(",", "").replace("KSh", "").replace(" ", "")
-            try:
-                return int(float(s))
-            except ValueError:
-                raise ValueError(f"{what} must be a number")
+    def _parse_int(self, s, what):
+        s = s.strip().replace(",", "").replace("KSh", "").replace(" ", "")
+        try:
+            return int(float(s))
+        except ValueError:
+            raise ValueError(f"{what} must be a number")
 
+    def _add(self):
         try:
             ok, msg = ops.add_product(
                 self.vars["name"].get(),
                 self.vars["category"].get(),
                 self.vars["code"].get(),
-                parse_int(self.vars["price"].get(), "Price"),
-                parse_int(self.vars["cost"].get(), "Cost"),
+                self._parse_int(self.vars["price"].get(), "Price"),
+                self._parse_int(self.vars["cost"].get(), "Cost"),
                 int(self.vars["stock"].get() or 0),
             )
-        except ValueError:
-            messagebox.showerror("Product", "Price/Cost must be numbers")
+        except ValueError as e:
+            messagebox.showerror("Product", str(e))
             return
         messagebox.showinfo("Product", msg)
+        self._clear_form()
+        self._refresh()
+
+    def _on_select(self, _event=None):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        pid = int(sel[0])
+        p = ops.get_product(pid)
+        if not p:
+            return
+        self._editing_id = pid
+        self.vars["name"].set(p["name"])
+        self.vars["category"].set(p["category"])
+        self.vars["code"].set(p["code"])
+        self.vars["price"].set(str(p["price"]))
+        self.vars["cost"].set(str(p["cost_price"]))
+        self.vars["stock"].set(str(p["stock_qty"]))
+
+    def _edit(self):
+        if not self._editing_id:
+            messagebox.showerror("Product", "Select a product to edit")
+            return
+        try:
+            ok, msg = ops.update_product(
+                self._editing_id,
+                self.vars["name"].get(),
+                self.vars["category"].get(),
+                self.vars["code"].get(),
+                self._parse_int(self.vars["price"].get(), "Price"),
+                self._parse_int(self.vars["cost"].get(), "Cost"),
+            )
+        except ValueError as e:
+            messagebox.showerror("Product", str(e))
+            return
+        messagebox.showinfo("Product", msg)
+        self._clear_form()
+        self._refresh()
+
+    def _restock(self):
+        if not self._editing_id:
+            messagebox.showerror("Product", "Select a product to restock")
+            return
+        p = ops.get_product(self._editing_id)
+        amt = simpledialog.askinteger(
+            "Restock",
+            f"Adjust stock for {p['name']}.\n"
+            f"Current stock: {p['stock_qty']}\n"
+            "Enter a positive number to add, negative to remove:",
+            parent=self, minvalue=-99999, maxvalue=99999,
+        )
+        if amt is None:
+            return
+        ok, msg = ops.restock(self._editing_id, amt)
+        messagebox.showinfo("Restock", msg)
+        self._clear_form()
+        self._refresh()
+
+    def _delete(self):
+        if not self._editing_id:
+            messagebox.showerror("Product", "Select a product to delete")
+            return
+        p = ops.get_product(self._editing_id)
+        if not messagebox.askyesno(
+                "Delete Product",
+                f"Delete {p['name']} and its sales history? This cannot be undone."):
+            return
+        ok, msg = ops.delete_product(self._editing_id)
+        messagebox.showinfo("Delete", msg)
+        self._clear_form()
+        self._refresh()
+
+    def _clear_form(self):
+        self._editing_id = None
         for v in self.vars.values():
             v.set("")
-        self._refresh()
+        self.tree.selection_remove(self.tree.selection())
 
     def _refresh(self):
         self.tree.delete(*self.tree.get_children())
@@ -990,6 +1072,10 @@ class ReportsView(tk.Frame):
                           values=["7", "14", "30", "90"], width=5)
         cb.pack(side="left", padx=6)
         AccentButton(toolbar, text="Refresh", command=self._refresh).pack(side="left")
+        AccentButton(toolbar, text="By Staff", command=self._staff_report).pack(
+            side="left", padx=4)
+        AccentButton(toolbar, text="End of Day", command=self._end_of_day).pack(
+            side="left", padx=4)
         for text, cmd in [
             ("Export CSV", self._export_csv),
             ("Export PDF", self._export_pdf),
@@ -1177,6 +1263,76 @@ class ReportsView(tk.Frame):
             self.app._flash_status("PDF saved to exports/report.pdf")
         except Exception as e:
             messagebox.showerror("PDF", f"Could not build PDF: {e}")
+
+    def _report_dialog(self, title, headers, rows):
+        """Show a simple modal table with a Save CSV button."""
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.configure(bg=BG)
+        win.transient(self)
+        win.grab_set()
+        cols = tuple(str(h) for h in headers)
+        tree = ttk.Treeview(win, columns=cols, show="headings")
+        for h in cols:
+            tree.heading(h, text=h.title() if h != "id" else "ID")
+            tree.column(h, anchor="center", width=110)
+        tree.column("day" if "day" in cols else "cashier", width=140)
+        for row in rows:
+            tree.insert("", "end", values=tuple(row))
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def save_csv():
+            path = filedialog.asksaveasfilename(
+                defaultextension=".csv", filetypes=[("CSV", "*.csv")])
+            if not path:
+                return
+            from export import export_csv
+            export_csv(Path(path).name, list(headers), [list(r) for r in rows])
+            self.app._flash_status(f"Saved: {Path(path).name}")
+
+        btns = tk.Frame(win, bg=BG)
+        btns.pack(pady=(0, 12))
+        AccentButton(btns, text="Save CSV", command=save_csv).pack(
+            side="left", padx=6)
+        AccentButton(btns, text="Close", command=win.destroy, bg=PANEL2).pack(
+            side="left", padx=6)
+
+    def _staff_report(self):
+        rows = ops.sales_by_cashier()
+        if not rows:
+            messagebox.showinfo("By Staff", "No sales recorded yet.")
+            return
+        data = [(r["cashier"], r["transactions"], r["units"],
+                 fmt_money(r["revenue"])) for r in rows]
+        self._report_dialog(
+            "Sales by Staff",
+            ["Cashier", "Sales", "Units", "Revenue"],
+            data,
+        )
+
+    def _end_of_day(self):
+        day = simpledialog.askstring(
+            "End of Day",
+            "Enter date as YYYY-MM-DD (leave blank for today):",
+            parent=self,
+        )
+        if day is None:
+            return
+        day = day.strip() if day else None
+        rep = ops.end_of_day_report(day)
+        label = day or "Today"
+        methods = rep["methods"]
+        rows = []
+        for m in ("cash", "card", "mobile"):
+            r = methods.get(m)
+            if r:
+                rows.append((m.title(), r["txns"], fmt_money(r["val"])))
+        rows.append(("Total", "-", fmt_money(rep["grand"])))
+        rows.append(("Units sold", "-", str(rep["units"])))
+        rows.append(("Voided sales", str(rep["voids"]), fmt_money(rep["void_value"])))
+        self._report_dialog(f"End of Day - {label}",
+                            ["Method", "Count", "Total"],
+                            rows)
 
 
 # --------------------------------------------------------------------------

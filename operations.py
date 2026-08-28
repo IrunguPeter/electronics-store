@@ -57,6 +57,59 @@ def low_stock(threshold=5):
     return rows
 
 
+def update_product(product_id, name, category, code, price, cost_price):
+    """Edit a product's details. Returns (ok, message)."""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE products SET name=?, category=?, code=?, price=?, cost_price=? "
+            "WHERE id=?",
+            (name, category, code, price, cost_price, product_id),
+        )
+        conn.commit()
+        return True, "Product updated"
+    except sqlite3.IntegrityError:
+        return False, "Product code already exists"
+    finally:
+        conn.close()
+
+
+def restock(product_id, add_qty):
+    """Increase (or decrease, with negative delta) the stock of a product."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT stock_qty FROM products WHERE id=?", (product_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, "Product not found"
+    new_stock = row["stock_qty"] + add_qty
+    if new_stock < 0:
+        conn.close()
+        return False, "Stock cannot go below zero"
+    conn.execute(
+        "UPDATE products SET stock_qty=? WHERE id=?",
+        (new_stock, product_id),
+    )
+    conn.commit()
+    conn.close()
+    return True, f"Stock is now {new_stock}"
+
+
+def delete_product(product_id):
+    """Remove a product and its line-item history. Returns (ok, message)."""
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM sale_items WHERE product_id=?", (product_id,))
+        conn.execute("DELETE FROM products WHERE id=?", (product_id,))
+        conn.commit()
+        return True, "Product deleted"
+    except Exception:
+        conn.rollback()
+        return False, "Could not delete product"
+    finally:
+        conn.close()
+
+
 def create_sale(cashier_id, payment_method, items, tendered=0):
     """items = list of (product_id, quantity, discount)
 
@@ -67,6 +120,9 @@ def create_sale(cashier_id, payment_method, items, tendered=0):
     try:
         total = 0
         line_items = []
+        if payment_method not in ("cash", "card", "mobile"):
+            raise ValueError(
+                f"Unknown payment method: {payment_method}")
         for product_id, qty, line_discount in items:
             prod = conn.execute(
                 "SELECT * FROM products WHERE id=?", (product_id,)
@@ -378,3 +434,70 @@ def profit_overall():
     profit = revenue - cost
     margin = (profit / revenue * 100) if revenue else 0.0
     return {"revenue": revenue, "cost": cost, "profit": profit, "margin": margin}
+
+
+def sales_by_cashier():
+    """Per-staff sales (non-voided): transactions, revenue, items sold."""
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT COALESCE(e.name, 'Deleted user') as cashier,
+               COUNT(s.id) as transactions,
+               COALESCE(SUM(s.total), 0) as revenue,
+               COALESCE(SUM(si.quantity), 0) as units
+        FROM sales s
+        LEFT JOIN employees e ON e.id = s.cashier_id
+        LEFT JOIN sale_items si ON si.sale_id = s.id
+        WHERE s.voided=0
+        GROUP BY s.cashier_id
+        ORDER BY revenue DESC
+        """
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def end_of_day_report(day=None):
+    """Monthly-end/single-day summary. day = 'YYYY-MM-DD' or None for today.
+
+    Returns units sold, cash/card/mobile totals, voided count and value.
+    """
+    conn = get_conn()
+    if day:
+        clause, params = "date(datetime)=?", (day,)
+    else:
+        clause, params = "date(datetime)=date('now','localtime')", ()
+    totals = conn.execute(
+        f"""
+        SELECT payment_method, COUNT(*) as txns, COALESCE(SUM(total),0) as val
+        FROM sales
+        WHERE voided=0 AND {clause}
+        GROUP BY payment_method
+        """,
+        params,
+    ).fetchall()
+    voids = conn.execute(
+        f"""
+        SELECT COUNT(*) as count, COALESCE(SUM(total),0) as value
+        FROM sales
+        WHERE voided=1 AND {clause}
+        """,
+        params,
+    ).fetchone()
+    units = conn.execute(
+        f"""
+        SELECT COALESCE(SUM(si.quantity),0)
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE s.voided=0 AND {clause}
+        """,
+        params,
+    ).fetchone()[0]
+    conn.close()
+    summary = {
+        "units": units,
+        "methods": {r["payment_method"]: r for r in totals},
+        "voids": voids["count"] if voids else 0,
+        "void_value": voids["value"] if voids else 0,
+    }
+    summary["grand"] = sum(r["val"] for r in totals)
+    return summary

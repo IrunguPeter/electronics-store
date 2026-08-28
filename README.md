@@ -21,10 +21,11 @@ required to operate the shop.
 - **🧾 Sales history & voids** — review recent sales, re-print a receipt, and
   (as Manager) **void** a mistaken sale, which returns items to stock.
 - **📦 Product management** — add products with a product code, category, price,
-  and cost. Search stock and get low-stock alerts.
+  and cost, then **edit**, **restock**, or **delete** them. Search stock and get
+  low-stock alerts.
 - **📊 Reports** — a dashboard with revenue, gross profit, and margin, plus a
-  daily revenue chart, category breakdown, and best sellers. Export to **CSV** or
-  **PDF**.
+  daily revenue chart, category breakdown, best sellers, **sales by staff**, and
+  an **end-of-day** summary. Export to **CSV** or **PDF**.
 - **☁️ Google Drive backups** — one-click (or scheduled) safe backups of your data
   to Google Drive, so you never lose sales records.
 - **👥 Staff & roles** — Manager and Employee roles. Managers can add/edit/delete
@@ -113,12 +114,16 @@ Enter your PIN on the login screen. (Default: `1234`.) You can log out with the
 ### Managing products
 In the **Products** tab, fill in the details and click **Add Product**:
 name, category, product code, selling price, cost price, and stock quantity.
-Rows turn **amber** when stock is low and **red** when out of stock.
+Click any product in the list to load it for editing, then **Save Changes**,
+**Restock** (adjust stock), or **Delete** it. Rows turn **amber** when stock is
+low and **red** when out of stock.
 
 ### Viewing reports
 The **Reports** tab shows revenue, gross profit, and margin for the current data,
 a daily revenue chart, a category breakdown, and your best-selling products.
-Use **Export CSV** or **Export PDF** to save a report.
+Use **By Staff** to see each cashier's sales, or **End of Day** for a daily
+summary of payment methods, units, and voids. Use **Export CSV** or **Export PDF**
+to save a report.
 
 ### Managing staff
 The **Employees** tab lists everyone with a PIN. **Managers** can add new staff,

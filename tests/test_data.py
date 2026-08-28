@@ -104,3 +104,63 @@ def test_duplicate_pin_rejected(fresh_db):
     ok, msg = ops.add_employee("B", "Employee", "9999")
     assert not ok
     assert "PIN" in msg
+
+
+def _prod(price=1000, cost=600, stock=10, code="T1"):
+    ok, _ = ops.add_product("Widget", "Gadgets", code, price, cost, stock)
+    assert ok
+    return ops.list_products(search=code)[0]
+
+
+def _emp(pin, name="Alice"):
+    ops.add_employee(name, "Employee", pin)
+    return ops.auth_employee(pin)
+
+
+def test_update_product(fresh_db):
+    p = _prod(code="U1")
+    ok, msg = ops.update_product(p["id"], "NewName", "Tech", "U2", 1500, 900)
+    assert ok
+    q = ops.get_product(p["id"])
+    assert q["name"] == "NewName" and q["price"] == 1500 and q["code"] == "U2"
+
+
+def test_restock(fresh_db):
+    p = _prod(stock=10, code="R1")
+    ok, _ = ops.restock(p["id"], 5)
+    assert ops.get_product(p["id"])["stock_qty"] == 15
+    ok, _ = ops.restock(p["id"], -100)
+    assert not ok
+
+
+def test_payment_method_validated(fresh_db):
+    p = _prod(code="V1")
+    emp = _emp("7777")
+    ok, msg = ops.create_sale(emp["id"], "bitcoin", [(p["id"], 1, 0)])
+    assert not ok
+    assert "payment" in msg.lower()
+
+
+def test_sales_by_cashier_and_end_of_day(fresh_db):
+    p = _prod(price=2000, cost=1200, stock=50, code="S1")
+    a = _emp("1111", "Alice")
+    ops.create_sale(a["id"], "cash", [(p["id"], 2, 0)], tendered=5000)
+    ops.create_sale(a["id"], "card", [(p["id"], 1, 0)])
+    b = _emp("2222", "Bob")
+    ops.create_sale(b["id"], "mobile", [(p["id"], 1, 0)])
+    # void Bob's so it drops out
+    bob_sale = [s for s in ops.recent_sales() if s["cashier"] == "Bob"][0]
+    ops.void_sale(bob_sale["id"])
+
+    staff = {r["cashier"]: r for r in ops.sales_by_cashier()}
+    assert staff["Alice"]["transactions"] == 2
+    assert staff["Alice"]["revenue"] == 6000
+    assert staff["Alice"]["units"] == 3
+
+    eod = ops.end_of_day_report()
+    assert eod["grand"] == 6000
+    assert eod["units"] == 3
+    assert eod["methods"]["cash"]["val"] == 4000
+    assert eod["methods"]["card"]["val"] == 2000
+    assert "mobile" not in eod["methods"]
+    assert eod["voids"] == 1 and eod["void_value"] == 2000

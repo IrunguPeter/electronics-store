@@ -102,6 +102,18 @@ When you get new stock, add it here so you can sell it.
 - **Amber** row = only a few left (5 or fewer).
 - **Red** row = out of stock.
 
+**Editing, restocking, or deleting a product:**
+1. **Click the product** in the list on the right. Its details load into the
+   form above.
+2. To change details (name, category, code, price, or cost), edit the fields and
+   click **Save Changes**.
+3. To add or remove stock, click **Restock** and type how many to add (a
+   positive number) or remove (a negative number).
+4. To remove a product you no longer sell, click **Delete** and confirm.
+
+> Deleting a product also removes its sales history. Use **Void** in the Sales
+> tab instead if you only want to correct a mistaken sale.
+
 ---
 
 ## 5. Reports (Reports tab)
@@ -115,6 +127,16 @@ This tab shows how the shop is doing:
   choose 7/14/30/90 days.
 - **Top Sellers** — your best-selling products.
 - **By Category** — a pie chart of sales by category.
+
+### Sales by staff
+- Click **By Staff** (next to Refresh) to see a table of each staff member's
+  sales, items sold, and revenue. This is useful for end-of-day cash matching.
+
+### End of day
+- Click **End of Day** to see a summary for a specific date (leave blank for
+  today): totals by payment method (cash/card/mobile), items sold, and any
+  voided sales.
+- Each report window has a **Save CSV** button to keep a copy.
 
 ### Exporting a report
 - Click **Export CSV** to save a spreadsheet you can open in Excel.
@@ -216,8 +238,12 @@ everyone, but only **Managers** can make changes.
 | Discount a line | New Sale | select cart item → Line discount → Apply |
 | Remove cart item | New Sale | select item → press Delete |
 | Add stock | Products | fill form → Add Product |
+| Edit product | Products | click product → Save Changes |
+| Restock | Products | click product → Restock |
 | Check stock alerts | Products | amber = low, red = none |
 | See profit | Reports | Revenue / Profit / Margin cards |
+| Sales by staff | Reports | By Staff button |
+| End-of-day report | Reports | End of Day button |
 | Export report | Reports | Export CSV or Export PDF |
 | View a receipt | Sales | double-click a sale |
 | Void a sale (Manager) | Sales | select sale → Void Selected Sale |
