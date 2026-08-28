@@ -1,7 +1,8 @@
 import csv
-from pathlib import Path
 
-OUT_DIR = Path(__file__).parent / "exports"
+from paths import EXPORT_DIR
+
+OUT_DIR = EXPORT_DIR
 
 
 def _ensure_outdir():

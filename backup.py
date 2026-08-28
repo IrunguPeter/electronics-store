@@ -4,9 +4,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from db import DB_PATH
+from paths import BACKUP_DIR, DB_PATH
 
-BACKUP_DIR = Path(__file__).parent / "backups"
 UPLOAD_REMOTE = "gdrive:store-backups"  # rclone remote:folder
 
 

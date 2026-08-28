@@ -1,7 +1,6 @@
 import sqlite3
-from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "store.db"
+from paths import DB_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS products (
@@ -108,6 +107,8 @@ def _migrate(conn):
 
 
 def init_db():
+    from paths import ensure_dirs
+    ensure_dirs()
     conn = get_conn()
     conn.executescript(SCHEMA)
     _migrate(conn)

@@ -5,3 +5,6 @@ venv/
 store.db
 backups/
 exports/
+build/
+dist/
+*.spec.bak

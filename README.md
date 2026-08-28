@@ -88,6 +88,37 @@ sudo apt install python3-tk      # or: sudo dnf install python3-tkinter
 
 ---
 
+## Build a Windows .exe (PyInstaller)
+
+Give the customer a single double-clickable file with no Python install needed.
+
+> PyInstaller does **not** cross-compile: the `.exe` must be built **on a Windows
+> computer**. Any Windows PC with Python works for the build.
+
+1. On a Windows machine, open the project folder.
+2. **Double-click `build_windows.bat`** (or run it from a terminal). It installs
+   the dependencies plus PyInstaller, then builds the exe.
+3. When it finishes, the program is at
+   **`dist\ElectronStore.exe`**.
+4. Copy that **one file** to the shop PC. Place it in its own folder (e.g.
+   `C:\ElectronStore\`).
+
+**How data is stored when running the exe:**
+- The database (`store.db`), `backups/`, and `exports/` are created **next to the
+  `.exe`**, so they survive as long as the folder does. Don't run it from a
+  folder you can't write to.
+- Always keep a recent backup (the **Backup** button / Google Drive) in case the
+  folder is ever moved or deleted.
+
+To build manually instead of the `.bat`:
+
+```bash
+py -m pip install -r requirements.txt pyinstaller
+py -m PyInstaller electronstore.spec --noconfirm
+```
+
+---
+
 ## Usage
 
 ### Logging in
@@ -184,7 +215,10 @@ electronics-store/
 ├── db.py            # Schema, connection and migrations
 ├── backup.py        # SQLite hot-backup + Google Drive upload (rclone)
 ├── export.py        # CSV and PDF report export
+├── paths.py         # Central path resolution (runs from source or .exe)
 ├── manual_backup.py # Standalone script for scheduled backups
+├── electronstore.spec   # PyInstaller build config
+├── build_windows.bat   # One-click Windows .exe builder
 ├── tests/           # pytest suite for the data layer
 └── requirements.txt
 ```

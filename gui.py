@@ -1,4 +1,3 @@
-import os
 import threading
 import tkinter as tk
 from datetime import datetime
@@ -711,19 +710,18 @@ class SaleView(tk.Frame):
         text.configure(state="disabled")
 
         def print_receipt():
+            from paths import EXPORT_DIR, ensure_dirs
             try:
                 text.configure(state="normal")
                 text.update_idletasks()
-                text.postscript(file=os.path.join(
-                    "exports", f"receipt_{sale_id}.ps"))
+                ensure_dirs()
+                text.postscript(file=str(EXPORT_DIR / f"receipt_{sale_id}.ps"))
                 text.configure(state="disabled")
             except Exception:
                 messagebox.showinfo(
                     "Print", "Open the receipt screen and use your system "
                     "print dialog / screenshot to print.")
-            out_dir = Path("exports")
-            out_dir.mkdir(exist_ok=True)
-            backup = out_dir / f"receipt_{sale_id}.txt"
+            backup = EXPORT_DIR / f"receipt_{sale_id}.txt"
             with open(backup, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(lines) + "\n")
             self.app._flash_status(f"Receipt saved to {backup}")
