@@ -295,6 +295,13 @@ class Toplevel(tk.Frame):
         logout.pack(side="right", padx=(0, 16), pady=14)
         logout.bind("<Button-1>", lambda _: self._logout())
 
+        # Restore (Managers only) + Backup on right
+        if self.is_manager:
+            self.restore_btn = AccentButton(
+                nav, text="Restore", command=self.do_restore, bg=DANGER,
+            )
+            self.restore_btn.pack(side="right", padx=8)
+
         # Backup button on right
         self.backup_btn = AccentButton(
             nav, text="Backup", command=self.do_backup, bg=SUCCESS,
@@ -362,6 +369,86 @@ class Toplevel(tk.Frame):
             self.after(0, self._flash_status, f"Backup saved: {path} — {msg}")
 
         threading.Thread(target=work, daemon=True).start()
+
+    def do_restore(self):
+        if not self.is_manager:
+            messagebox.showerror("Restore", "Only Managers can restore a backup.")
+            return
+        backups = backup.list_backups()
+        if not backups:
+            messagebox.showinfo(
+                "Restore",
+                "No backups found yet. Use Backup first, or copy a "
+                "'store_*.db' file into the backups folder.",
+            )
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Restore from backup")
+        win.configure(bg=BG)
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        _set_window_icon(win)
+
+        tk.Label(
+            win, text="Choose a backup to restore", bg=BG, fg=TEXT,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(padx=20, pady=(16, 4))
+        tk.Label(
+            win, text="The current database is replaced and you will log in again.", bg=BG, fg=MUTED,
+            font=("Segoe UI", 10),
+        ).pack(padx=20)
+
+        box = tk.Listbox(
+            win, bg=PANEL2, fg=TEXT, relief="flat", highlightthickness=0,
+            selectmode="single", width=58, height=min(10, len(backups)),
+            font=("Consolas", 10),
+        )
+        box.pack(padx=20, pady=(10, 4))
+        for p in backups:
+            try:
+                stamp = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                size = f"{p.stat().st_size:,} B"
+            except OSError:
+                stamp, size = "?", "?"
+            box.insert("end", f"  {p.name}   {size}   {stamp}")
+        if backups:
+            box.selection_set(0)
+
+        btns = tk.Frame(win, bg=BG)
+        btns.pack(pady=(2, 14))
+
+        def restore_sel():
+            sel = box.curselection()
+            if not sel:
+                self._flash_status("Select a backup first")
+                return
+            chosen = backups[sel[0]]
+            if not messagebox.askyesno(
+                "Restore backup",
+                f"Replace current data with {chosen.name}?\n\n"
+                "A safety copy of the current database is kept in backups/ "
+                "before restoring, so this can be undone.\n\n"
+                "The app will log out so you can log back in.",
+            ):
+                return
+            ok, msg = backup.restore_backup(chosen)
+            if not ok:
+                messagebox.showerror("Restore", msg)
+                return
+            messagebox.showinfo(
+                "Restore", msg + "\n\nLogging out - please log in again."
+            )
+            win.destroy()
+            self._logout()
+
+        AccentButton(
+            btns, text="Restore Selected", command=restore_sel, bg=DANGER,
+        ).pack(side="left", padx=6)
+        AccentButton(
+            btns, text="Cancel", command=win.destroy, bg=PANEL2,
+        ).pack(side="left", padx=6)
 
     def _logout(self):
         self.master.destroy()

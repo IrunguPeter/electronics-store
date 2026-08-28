@@ -150,8 +150,19 @@ Notes:
 
 ### Publishing a release (so the installer can download)
 
-From the project folder (on the build PC), after `build_setup.bat` has produced
-`dist\ElectronStore.exe`:
+**Easiest: let GitHub Actions do it.** Tag a commit with `v*` and push — the
+`.github/workflows/release.yml` workflow builds both exes on a Windows runner,
+runs the test suite, and creates the GitHub Release automatically:
+
+```bash
+git tag v1.0 && git push origin v1.0
+```
+
+The release ships with `ElectronStore.exe` (the asset the installer downloads)
+**and** `ElectronStoreSetup.exe` as a bonus. No Windows PC or local build needed.
+
+**Or build it yourself.** From the project folder (on the build PC), after
+`build_setup.bat` has produced `dist\ElectronStore.exe`:
 
 ```bash
 gh release create v1.0 "dist/ElectronStore.exe" --title "ElectronStore 1.0" --notes "First release"
@@ -223,6 +234,21 @@ deleting or demoting the very last manager.
     ```
     0 23 * * * python3 /path/to/electronics-store/manual_backup.py
     ```
+
+### Restoring from a backup
+
+If the machine ever needs replacing, use the **Restore** button in the app
+(Managers only, next to **Backup**):
+
+1. Choose a backup from the list (`store_YYYYMMDD_HHMMSS.db`). You can also
+   drop a `store_*.db` file you downloaded from Google Drive into the `backups/`
+   folder first — it will appear in the list.
+2. The app keeps a **safety copy** of the current database in `backups/`
+   before restoring, then restores the chosen one and logs out.
+3. Log back in with the manager PIN from the restored backup.
+
+**Guard rail:** a backup with no Manager account is refused, so you can't
+restore an empty or corrupted file and lock yourself out.
 
 ### Automatic backups on Windows (Task Scheduler)
 

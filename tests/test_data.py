@@ -4,8 +4,10 @@ import tempfile
 
 import pytest
 
+import backup
 import db
 import operations as ops
+import paths
 from security import is_hashed, verify_pin
 
 
@@ -191,3 +193,67 @@ def test_legacy_plaintext_pin_migrated_to_hash(fresh_db):
     assert is_hashed(row["pin"])
     assert row["pin"] != "1234"
     assert ops.auth_employee("1234") is not None
+
+
+def test_restore_backup_replaces_database(tmp_path, monkeypatch):
+    db_path = tmp_path / "store.db"
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+    monkeypatch.setattr(paths, "DB_PATH", db_path)
+    monkeypatch.setattr(paths, "BACKUP_DIR", tmp_path / "backups")
+    db.init_db()
+
+    ops.add_employee("Boss", "Manager", "1000")
+    ops.add_employee("Bessie", "Employee", "2000")
+    ops.add_product("Widget", "Gadgets", "W-1", 1000, 500, 5)
+
+    snapshot = backup.create_local_backup()
+    assert snapshot.exists()
+
+    # Mutate the live database *after* the backup was taken...
+    ops.add_product("Extra", "Gadgets", "W-2", 900, 400, 3)
+    assert len(ops.list_products()) == 2
+
+    # ...then restore the earlier snapshot.
+    ok, msg = backup.restore_backup(snapshot)
+    assert ok
+    assert "kept as" in msg  # safety copy mentioned
+    assert len(ops.list_products()) == 1
+    assert ops.auth_employee("1000") is not None  # manager present again
+    assert len(backup.list_backups()) == 2  # snapshot + pre-restore safety copy
+
+
+def test_restore_backup_refuses_non_database(tmp_path, monkeypatch):
+    bad = tmp_path / "not_a_db.db"
+    bad.write_bytes(b"this is not a sqlite file at all")
+    ok, msg = backup.restore_backup(bad)
+    assert not ok
+    assert "not a valid database" in msg
+
+
+def test_restore_backup_refuses_without_manager(tmp_path, monkeypatch):
+    db_path = tmp_path / "store.db"
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+    monkeypatch.setattr(paths, "DB_PATH", db_path)
+    monkeypatch.setattr(paths, "BACKUP_DIR", tmp_path / "backups")
+    db.init_db()
+
+    empty = tmp_path / "empty.db"
+    conn = sqlite3.connect(empty)
+    conn.execute(
+        "CREATE TABLE employees (id INTEGER PRIMARY KEY, name TEXT,"
+        " role TEXT, pin TEXT)"
+    )
+    conn.commit()
+    conn.close()
+
+    ok, msg = backup.restore_backup(empty)
+    assert not ok
+    assert "no Manager" in msg
+    # live database untouched
+    assert ops.auth_employee("1000") is None
+
+
+def test_restore_backup_missing_file(tmp_path):
+    ok, msg = backup.restore_backup(tmp_path / "ghost.db")
+    assert not ok
+    assert "not found" in msg
