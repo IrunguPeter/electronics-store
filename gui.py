@@ -1,0 +1,906 @@
+import getpass
+import threading
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, font as tkfont, messagebox, ttk
+
+import backup
+import operations as ops
+from db import init_db
+
+# Palette
+BG = "#0f172a"        # slate-900
+PANEL = "#1e293b"     # slate-800
+PANEL2 = "#334155"    # slate-700
+ACCENT = "#38bdf8"    # sky-500
+ACCENT2 = "#2563eb"   # blue-600
+SUCCESS = "#22c55e"   # green-500
+WARN = "#f59e0b"      # amber-500
+TEXT = "#e2e8f0"      # slate-200
+MUTED = "#94a3b8"     # slate-400
+DANGER = "#ef4444"    # red-500
+
+# Currency — Kenya Shillings
+CURRENCY = "KES"
+CURRENCY_SYMBOL = "KSh"
+
+
+def _lighten(color, amount):
+    """Return a lighter version of a hex color (amount 0..1)."""
+    h = color.lstrip("#")
+    rgb = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    rgb = [min(255, int(c + (255 - c) * amount)) for c in rgb]
+    return "#%02x%02x%02x" % tuple(rgb)
+
+
+def fmt_money(amount):
+    """Format an amount as Kenyan Shillings, e.g. 12,345.50 KSh."""
+    return f"{CURRENCY_SYMBOL} {amount:,.2f}"
+
+
+def _rounded_points(x1, y1, x2, y2, r):
+    """Return polygon points for a rounded rectangle."""
+    return [
+        x1 + r, y1,
+        x2 - r, y1,
+        x2, y1,
+        x2, y1 + r,
+        x2, y2 - r,
+        x2, y2,
+        x2 - r, y2,
+        x1 + r, y2,
+        x1, y2,
+        x1, y2 - r,
+        x1, y1 + r,
+        x1, y1,
+    ]
+
+
+class AccentButton(tk.Canvas):
+    """Rounded pill button drawn on a canvas, with hover/press animations."""
+
+    def __init__(self, master, text="", command=None, bg=ACCENT2, fg="white",
+                 font=("Segoe UI", 11, "bold"), radius=16, padx=18, pady=9,
+                 **kw):
+        super().__init__(
+            master, bg=master.cget("bg"), highlightthickness=0, bd=0, **kw
+        )
+        self.base_color = bg
+        self.hover_color = _lighten(bg, 0.18)
+        self.text = text
+        self.fg = fg
+        self.font = font
+        self.radius = radius
+        self.padx = padx
+        self.pady = pady
+        self.command = command
+        self._enabled = True
+
+        # Pre-measure text so the pill fits its label
+        fnt = tkfont.Font(root=self, font=font)
+        tw = fnt.measure(text)
+        th = fnt.metrics("linespace")
+        w = tw + padx * 2 + radius
+        h = th + pady * 2
+        self.configure(width=w, height=h)
+        self._tw, self._th = tw, th
+
+        self.shape = self.create_polygon(
+            _rounded_points(2, 2, w - 2, h - 2, radius),
+            fill=bg, outline="", smooth=True,
+        )
+        self.label = self.create_text(
+            w // 2, h // 2, text=text, fill=fg, font=font
+        )
+
+        self.bind("<Enter>", lambda e: self._tween(bg, self.hover_color))
+        self.bind("<Leave>", lambda e: self._tween(self.hover_color, bg))
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def _tween(self, a, b, steps=8):
+        def to_hex(t):
+            return "#%02x%02x%02x" % tuple(
+                max(0, min(255, int(v))) for v in t)
+
+        def rgb(c):
+            c = c[1:] if c.startswith("#") else c
+            return tuple(int(c[j:j + 2], 16) for j in (0, 2, 4))
+
+        a, b = rgb(a), rgb(b)
+
+        def step(i):
+            if i > steps:
+                self.itemconfigure(self.shape, fill=to_hex(b))
+                return
+            mixed = tuple(int(a[j] + (b[j] - a[j]) * (i / steps)) for j in range(3))
+            self.itemconfigure(self.shape, fill=to_hex(mixed))
+            self.after(12, lambda: step(i + 1))
+
+        step(0)
+
+    def _on_press(self, _):
+        # Shrink the pill slightly for a press effect
+        w = int(self.cget("width"))
+        h = int(self.cget("height"))
+        self.coords(
+            self.shape, *_rounded_points(4, 4, w - 4, h - 4, self.radius)
+        )
+
+    def _on_release(self, _):
+        w = int(self.cget("width"))
+        h = int(self.cget("height"))
+        self.coords(
+            self.shape, *_rounded_points(2, 2, w - 2, h - 2, self.radius)
+        )
+        if self.command:
+            self.command()
+
+    def set_text(self, text):
+        self.text = text
+        self.itemconfigure(self.label, text=text)
+        fnt = tkfont.Font(root=self, font=self.font)
+        tw = fnt.measure(text)
+        th = fnt.metrics("linespace")
+        w = tw + self.padx * 2 + self.radius
+        h = th + self.pady * 2
+        self.configure(width=w, height=h)
+        self.coords(self.shape, *_rounded_points(2, 2, w - 2, h - 2, self.radius))
+        self.coords(self.label, w // 2, h // 2)
+
+
+class RoundedEntry(tk.Canvas):
+    """Rounded pill container wrapping a real tk.Entry."""
+
+    def __init__(self, master, textvariable=None, fg=TEXT, bg=PANEL,
+                 font=("Segoe UI", 12), radius=14, width_chars=10,
+                 justify="left", insertbackground=None, show=None, **kw):
+        fnt = tkfont.Font(root=master, font=font)
+        ch = fnt.measure("0")
+        w = max(ch * width_chars + radius * 2 + 12, 60)
+        h = fnt.metrics("linespace") + 16
+        super().__init__(master, bg=master.cget("bg"), highlightthickness=0,
+                         bd=0, width=w, height=h, **kw)
+        self.bg = bg
+        self.radius = radius
+        self.shape = self.create_polygon(
+            _rounded_points(2, 2, w - 2, h - 2, radius),
+            fill=bg, outline="", smooth=True,
+        )
+        self.entry = tk.Entry(
+            self, textvariable=textvariable, bg=bg, fg=fg, show=show,
+            insertbackground=(insertbackground or fg), relief="flat", bd=0,
+            font=font, justify=justify, highlightthickness=0,
+        )
+        self._entry_window = self.create_window(
+            w // 2, h // 2, window=self.entry, width=w - radius - 16
+        )
+        self.bind("<Configure>", self._on_resize)
+
+    def _on_resize(self, _):
+        w = self.winfo_width()
+        h = self.winfo_height()
+        if w > 4 and h > 4:
+            self.coords(
+                self.shape, *_rounded_points(2, 2, w - 2, h - 2, self.radius)
+            )
+            self.coords(self._entry_window, w // 2, h // 2)
+            self.itemconfigure(self._entry_window, width=w - self.radius - 12)
+
+    def get(self):
+        return self.entry.get()
+
+
+class NumberButton(tk.Button):
+    """Big on-screen numpad button."""
+
+    def __init__(self, master, text, command):
+        super().__init__(
+            master,
+            text=text,
+            command=command,
+            bg=PANEL2,
+            fg=TEXT,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            font=("Segoe UI", 18, "bold"),
+            activebackground=ACCENT2,
+            activeforeground="white",
+        )
+        self.bind("<Enter>", lambda e: self.configure(bg=ACCENT2, fg="white"))
+        self.bind("<Leave>", lambda e: self.configure(bg=PANEL2, fg=TEXT))
+
+
+class Toplevel(tk.Frame):
+    """Main dashboard with a top nav bar, animated tab switching, and status bar."""
+
+    def __init__(self, master, cashier_id, cashier_name):
+        super().__init__(master, bg=BG)
+        master.title("ElectronStore POS")
+        master.geometry("1100x700")
+        master.configure(bg=BG)
+        master.minsize(950, 620)
+
+        self.cashier_id = cashier_id
+        self.cashier_name = cashier_name
+        self.current_tab = None
+
+        self._build_nav()
+        self._build_statusbar()
+
+        self.container = tk.Frame(self, bg=BG)
+        self.container.pack(fill="both", expand=True)
+
+        self.tabs = {"sale": SaleView, "products": ProductsView, "reports": ReportsView}
+        self.show("sale")
+
+        self.after(2000, self._flash_status, f"Welcome, {cashier_name}!")
+
+    def _build_nav(self):
+        nav = tk.Frame(self, bg=PANEL, height=60)
+        nav.pack(fill="x")
+        nav.pack_propagate(False)
+
+        title = tk.Label(
+            nav, text="ElectronStore", bg=PANEL, fg=ACCENT,
+            font=("Segoe UI", 18, "bold"),
+        )
+        title.pack(side="left", padx=20)
+
+        self.nav_btns = {}
+        for key, label in [
+            ("sale", "New Sale"),
+            ("products", "Products"),
+            ("reports", "Reports"),
+        ]:
+            b = tk.Label(
+                nav, text="  " + label + "  ", bg=PANEL, fg=MUTED,
+                font=("Segoe UI", 12, "bold"), cursor="hand2",
+            )
+            b.pack(side="left", padx=6, pady=12)
+            b.bind("<Button-1>", lambda e, k=key: self.show(k))
+            b.bind("<Enter>", lambda e, b=b: b.configure(fg=TEXT))
+            b.bind("<Leave>", lambda e, b=b: b.configure(fg=MUTED))
+            self.nav_btns[key] = b
+            self.nav_btns[key].name = key
+
+        # Backup button on right
+        self.backup_btn = AccentButton(
+            nav, text="Backup", command=self.do_backup, bg=SUCCESS,
+        )
+        self.backup_btn.pack(side="right", padx=20)
+
+        # Separator line under nav
+        line = tk.Frame(self, bg=ACCENT2, height=2)
+        line.pack(fill="x")
+
+    def _build_statusbar(self):
+        bar = tk.Frame(self, bg=PANEL, height=28)
+        bar.pack(fill="x", side="bottom")
+        bar.pack_propagate(False)
+        self.status = tk.Label(
+            bar, text="Ready", bg=PANEL, fg=MUTED, anchor="w",
+            font=("Segoe UI", 10),
+        )
+        self.status.pack(side="left", padx=12)
+        tk.Label(
+            bar, text=f"Cashier: {self.cashier_name}",
+            bg=PANEL, fg=ACCENT, font=("Segoe UI", 10, "bold"),
+        ).pack(side="right", padx=12)
+
+    def _flash_status(self, msg):
+        self._status_colour = ACCENT
+        self._status_msg = msg
+        self._status_step = 0
+        self._animate_status()
+
+    def _animate_status(self):
+        # Fade accent -> muted over ~1.5s
+        self._status_step += 1
+        if self._status_step > 18:
+            self.status.configure(text=self._status_msg or "Ready", fg=MUTED)
+            return
+        self.status.configure(text=self._status_msg, fg=ACCENT)
+        self.after(40, self._animate_status)
+
+    def show(self, key):
+        for f in self.container.winfo_children():
+            f.destroy()
+        self.current_tab = self.tabs[key](self.container, self)
+        self.current_tab.pack(fill="both", expand=True)
+        self._highlight_nav(key)
+
+    def _highlight_nav(self, key):
+        for k, b in self.nav_btns.items():
+            if k == key:
+                b.configure(bg=ACCENT2, fg="white")
+            else:
+                b.configure(bg=PANEL, fg=MUTED)
+
+    def do_backup(self):
+        self.status.configure(text="Backing up…", fg=ACCENT)
+
+        def work():
+            ok_local = False
+            try:
+                path, msg = backup.run_backup()
+                ok_local = True
+            except Exception as e:
+                self._flash_status(f"Backup failed: {e}")
+                return
+            self.after(0, self._flash_status, f"Backup saved: {path} — {msg}")
+
+        threading.Thread(target=work, daemon=True).start()
+
+
+# --------------------------------------------------------------------------
+# SALE VIEW
+# --------------------------------------------------------------------------
+class SaleView(tk.Frame):
+    def __init__(self, master, app):
+        super().__init__(master, bg=BG)
+        self.app = app
+        self.cart = []  # list of dicts
+        self.total = 0.0
+        self.barcode = ""
+
+        # Left: product picker
+        left = tk.Frame(self, bg=BG)
+        left.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+
+        tk.Label(left, text="Scan / pick products", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
+
+        srch = tk.Frame(left, bg=BG)
+        srch.pack(fill="x", pady=6)
+        self.search_var = tk.StringVar()
+        e = RoundedEntry(srch, textvariable=self.search_var, bg=PANEL, fg=TEXT,
+                         font=("Segoe UI", 12), width_chars=14)
+        e.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        e.entry.bind("<Return>", lambda _: self._search())
+        e.entry.bind("<KeyRelease>", lambda _: self._search())
+        AccentButton(srch, text="Search", command=self._search).pack(side="right")
+
+        # Product list
+        cols = ("id", "name", "price", "stock")
+        self.tree = ttk.Treeview(left, columns=cols, show="headings", height=14)
+        self.tree.heading("id", text="ID")
+        self.tree.heading("name", text="Name")
+        self.tree.heading("price", text="Price")
+        self.tree.heading("stock", text="Stock")
+        for c in ("id", "price", "stock"):
+            self.tree.column(c, width=70, anchor="center")
+        self.tree.column("name", width=260, anchor="w")
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure(
+            "Treeview", background=PANEL, fieldbackground=PANEL,
+            foreground=TEXT, rowheight=28, borderwidth=0,
+        )
+        style.configure(
+            "Treeview.Heading", background=PANEL2, foreground=TEXT,
+            relief="flat", font=("Segoe UI", 10, "bold"),
+        )
+        self.tree.pack(fill="both", expand=True, pady=8)
+        self.tree.bind("<Double-Button-1>", lambda _: self._add_selected())
+        self.tree.bind("<Return>", lambda _: self._add_selected())
+
+        # Add button + qty
+        bottom = tk.Frame(left, bg=BG)
+        bottom.pack(fill="x")
+        tk.Label(bottom, text="Qty:", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 11)).pack(side="left")
+        self.qty_var = tk.StringVar(value="1")
+        RoundedEntry(bottom, textvariable=self.qty_var, bg=PANEL, fg=TEXT,
+                     font=("Segoe UI", 12), width_chars=4).pack(
+            side="left", padx=6
+        )
+        AccentButton(bottom, text="Add to Cart", command=self._add_selected).pack(
+            side="left", padx=6
+        )
+
+        self._search()
+
+        # Right: cart + checkout
+        right = tk.Frame(self, bg=PANEL)
+        right.pack(side="right", fill="y", padx=10, pady=10, ipadx=6)
+
+        tk.Label(right, text="Cart", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=4)
+
+        self.cart_list = tk.Listbox(right, bg=PANEL2, fg=TEXT, relief="flat",
+                                    highlightthickness=0, height=14,
+                                    font=("Consolas", 10))
+        self.cart_list.pack(fill="both", expand=True)
+        self.cart_list.bind("<Delete>", lambda _: self._remove_selected())
+
+        self.total_lbl = tk.Label(
+            right, text=fmt_money(0), bg=PANEL, fg=SUCCESS,
+            font=("Segoe UI", 20, "bold"),
+        )
+        self.total_lbl.pack(anchor="e", pady=6)
+
+        pm = tk.Frame(right, bg=PANEL)
+        pm.pack(fill="x", pady=4)
+        self.pmethod = tk.StringVar(value="cash")
+        for i, m in enumerate(["cash", "card", "mobile"]):
+            tk.Radiobutton(
+                pm, text=m.title(), variable=self.pmethod, value=m,
+                bg=PANEL, fg=TEXT, selectcolor=PANEL2, activebackground=PANEL,
+                activeforeground=TEXT, font=("Segoe UI", 10),
+            ).grid(row=0, column=i, padx=4)
+
+        AccentButton(right, text="Charge  ✓", command=self._checkout,
+                     bg=SUCCESS).pack(fill="x", pady=6)
+
+        self._render_cart()
+
+    def _search(self):
+        self.tree.delete(*self.tree.get_children())
+        term = self.search_var.get().strip()
+        for p in ops.list_products(term):
+            self.tree.insert("", "end", iid=str(p["id"]), values=(
+                p["id"], p["name"], fmt_money(p["price"]), p["stock_qty"],
+            ))
+
+    def _add_selected(self):
+        try:
+            pid = int(self.tree.selection()[0])
+        except (IndexError, ValueError):
+            self.app._flash_status("Select a product to add")
+            return
+        try:
+            qty = int(self.qty_var.get()) or 1
+        except ValueError:
+            qty = 1
+        prod = ops.get_product(pid)
+        if not prod:
+            return
+        if qty > prod["stock_qty"]:
+            self.app._flash_status(f"Only {prod['stock_qty']} in stock")
+            return
+        for item in self.cart:
+            if item["id"] == pid:
+                item["qty"] += qty
+                break
+        else:
+            self.cart.append({"id": pid, "name": prod["name"], "qty": qty,
+                              "price": prod["price"]})
+        self._render_cart()
+        self._count_up()
+
+    def _remove_selected(self):
+        sel = self.cart_list.curselection()
+        if not sel:
+            return
+        del self.cart[sel[0]]
+        self._render_cart()
+
+    def _render_cart(self):
+        self.cart_list.delete(0, "end")
+        self.total = 0.0
+        for item in self.cart:
+            self.total += item["price"] * item["qty"]
+            self.cart_list.insert(
+                "end",
+                f"{item['qty']:>3} x {item['name']:<24} {fmt_money(item['price']*item['qty']):>14}",
+            )
+        self.total_lbl.configure(text=fmt_money(self.total))
+
+    def _count_up(self):
+        # animate total from 0 to target over ~0.3s
+        target = self.total
+        start = 0.0
+        steps = 12
+
+        def step(i):
+            if i > steps:
+                self.total_lbl.configure(text=fmt_money(target))
+                return
+            frac = i / steps
+            eased = 1 - (1 - frac) ** 2
+            self.total_lbl.configure(
+                text=fmt_money(start + (target - start) * eased))
+            self.after(18, lambda: step(i + 1))
+
+        step(0)
+
+    def _checkout(self):
+        if not self.cart:
+            self.app._flash_status("Cart is empty")
+            return
+        items = [(i["id"], i["qty"], 0) for i in self.cart]
+        ok, result = ops.create_sale(self.app.cashier_id, self.pmethod.get(), items)
+        if not ok:
+            messagebox.showerror("Checkout", result)
+            self._search()
+            return
+        self._celebrate(result)
+        self.cart.clear()
+        self._render_cart()
+        self._search()
+
+    def _celebrate(self, sale_id):
+        overlay = tk.Toplevel(self)
+        overlay.overrideredirect(True)
+        overlay.configure(bg=SUCCESS)
+        overlay.attributes("-topmost", True)
+        # center over window
+        self.update_idletasks()
+        x = self.winfo_rootx() + 120
+        y = self.winfo_rooty() + 150
+        overlay.geometry(f"+{x}+{y}")
+        tk.Label(
+            overlay, text=f"✓ Sale #{sale_id}\nSuccessful!",
+            bg=SUCCESS, fg="white", font=("Segoe UI", 20, "bold"),
+            padx=30, pady=20,
+        ).pack()
+        for _, size in enumerate(range(1, 12)):
+            overlay.after(size * 12, lambda s=size: overlay.tk.call(
+                "wm", "geometry", overlay,
+                f"{300 + s*4}x{180 + s*3}+{x - s*2}+{y - s*2}",
+            ))
+        overlay.after(1100, overlay.destroy)
+
+
+# --------------------------------------------------------------------------
+# PRODUCTS VIEW
+# --------------------------------------------------------------------------
+class ProductsView(tk.Frame):
+    def __init__(self, master, app):
+        super().__init__(master, bg=BG)
+        self.app = app
+
+        form = tk.Frame(self, bg=PANEL)
+        form.pack(fill="x", padx=10, pady=10, ipady=8)
+
+        fields = ["name", "category", "code", "price", "cost"]
+        self.vars = {f: tk.StringVar() for f in fields}
+        for i, f in enumerate(fields):
+            label = "Product Code" if f == "code" else f.capitalize()
+            tk.Label(form, text=label, bg=PANEL, fg=MUTED,
+                     font=("Segoe UI", 10)).grid(row=0, column=i * 2, padx=(10, 4))
+            RoundedEntry(form, textvariable=self.vars[f], bg=PANEL2, fg=TEXT,
+                         font=("Segoe UI", 11), width_chars=12).grid(
+                row=1, column=i * 2, padx=10, pady=4
+            )
+
+        tk.Label(form, text="Stock", bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 10)).grid(row=0, column=10, padx=4)
+        self.vars["stock"] = tk.StringVar(value="0")
+        RoundedEntry(form, textvariable=self.vars["stock"], bg=PANEL2, fg=TEXT,
+                     font=("Segoe UI", 11), width_chars=5).grid(
+            row=1, column=10, padx=10
+        )
+
+        AccentButton(form, text="Add Product", command=self._add).grid(
+            row=1, column=12, padx=10, rowspan=2
+        )
+
+        # list
+        cols = ("id", "name", "category", "code", "price", "cost", "stock")
+        self.tree = ttk.Treeview(self, columns=cols, show="headings")
+        for c, w in [("id", 50), ("name", 200), ("category", 100),
+                     ("code", 90), ("price", 110), ("cost", 110), ("stock", 70)]:
+            self.tree.heading(c, text="Product Code" if c == "code" else c.upper())
+            self.tree.column(c, width=w, anchor="center")
+        self.tree.column("name", anchor="w")
+        style = ttk.Style()
+        style.configure("Treeview", background=PANEL, fieldbackground=PANEL,
+                        foreground=TEXT, rowheight=28, borderwidth=0)
+        style.configure("Treeview.Heading", background=PANEL2, foreground=TEXT,
+                        relief="flat", font=("Segoe UI", 10, "bold"))
+        self.tree.pack(fill="both", expand=True, padx=10, pady=10)
+        self.tree.tag_configure("low", foreground=WARN)
+        self.tree.tag_configure("out", foreground=DANGER)
+
+        self._refresh()
+
+    def _add(self):
+        try:
+            ok, msg = ops.add_product(
+                self.vars["name"].get(),
+                self.vars["category"].get(),
+                self.vars["code"].get(),
+                float(self.vars["price"].get()),
+                float(self.vars["cost"].get()),
+                int(self.vars["stock"].get() or 0),
+            )
+        except ValueError:
+            messagebox.showerror("Product", "Price/Cost must be numbers")
+            return
+        messagebox.showinfo("Product", msg)
+        for v in self.vars.values():
+            v.set("")
+        self._refresh()
+
+    def _refresh(self):
+        self.tree.delete(*self.tree.get_children())
+        for p in ops.list_products():
+            tag = ""
+            if p["stock_qty"] <= 0:
+                tag = "out"
+            elif p["stock_qty"] <= 5:
+                tag = "low"
+            self.tree.insert("", "end", values=(
+                p["id"], p["name"], p["category"], p["code"],
+                fmt_money(p["price"]), fmt_money(p["cost_price"]), p["stock_qty"],
+            ), tags=(tag,))
+
+
+# --------------------------------------------------------------------------
+# REPORTS VIEW
+# --------------------------------------------------------------------------
+class ReportsView(tk.Frame):
+    def __init__(self, master, app):
+        super().__init__(master, bg=BG)
+        self.app = app
+        self.chart = None
+
+        toolbar = tk.Frame(self, bg=BG)
+        toolbar.pack(fill="x", padx=10, pady=(10, 4))
+
+        tk.Label(toolbar, text="Days:", bg=BG, fg=MUTED,
+                 font=("Segoe UI", 11)).pack(side="left")
+        self.days = tk.StringVar(value="30")
+        cb = ttk.Combobox(toolbar, textvariable=self.days, state="readonly",
+                          values=["7", "14", "30", "90"], width=5)
+        cb.pack(side="left", padx=6)
+        AccentButton(toolbar, text="Refresh", command=self._refresh).pack(side="left")
+        for text, cmd in [
+            ("Export CSV", self._export_csv),
+            ("Export PDF", self._export_pdf),
+        ]:
+            AccentButton(toolbar, text=text, command=cmd).pack(side="right", padx=4)
+
+        self.overview = tk.Frame(self, bg=BG)
+        self.overview.pack(fill="x", padx=10)
+        self._build_overview()
+
+        chart_area = tk.Frame(self, bg=BG)
+        chart_area.pack(fill="both", expand=True, padx=10, pady=4)
+        self.chart_frame = tk.Frame(chart_area, bg=BG)
+        self.chart_frame.pack(side="left", fill="both", expand=True)
+
+        side = tk.Frame(chart_area, bg=PANEL, width=260)
+        side.pack(side="right", fill="y", padx=(8, 0))
+        self.side = side
+        self._build_side()
+
+        self._refresh()
+
+    def _build_overview(self):
+        for c in self.overview.winfo_children():
+            c.destroy()
+        prof = ops.profit_overall()
+        cards = [
+            ("Revenue", fmt_money(prof['revenue']), ACCENT),
+            ("Profit", fmt_money(prof['profit']), SUCCESS),
+            ("Margin", f"{prof['margin']:.1f}%", WARN),
+        ]
+        for i, (label, val, color) in enumerate(cards):
+            card = tk.Frame(self.overview, bg=PANEL, width=200, height=70)
+            card.pack(side="left", padx=6, fill="both", expand=True, pady=4)
+            card.pack_propagate(False)
+            tk.Label(card, text=label, bg=PANEL, fg=MUTED,
+                     font=("Segoe UI", 10)).pack(pady=(8, 0))
+            tk.Label(card, text=val, bg=PANEL, fg=color,
+                     font=("Segoe UI", 16, "bold")).pack()
+
+    def _build_side(self):
+        for c in self.side.winfo_children():
+            c.destroy()
+        tk.Label(self.side, text="Top Sellers", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        self.side_tree = ttk.Treeview(
+            self.side, columns=("units",), show="headings", height=12,
+            style="Side.Treeview",
+        )
+        self.side_tree.heading("units", text="Units")
+        self.side_tree.column("units", width=60, anchor="center")
+        st = ttk.Style()
+        st.configure("Side.Treeview", background=PANEL, fieldbackground=PANEL,
+                     foreground=TEXT, rowheight=24)
+        st.configure("Side.Treeview.Heading", background=PANEL2, foreground=TEXT)
+        self.side_tree.column("#0", width=180, anchor="w")
+        self.side_tree.pack(fill="both", expand=True, padx=8, pady=4)
+
+        tk.Label(self.side, text="By Category", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        self.cat_labels = []
+        cat_frame = tk.Frame(self.side, bg=PANEL)
+        cat_frame.pack(fill="x", padx=12, pady=4)
+        self.cat_frame = cat_frame
+
+    def _refresh(self):
+        try:
+            days = int(self.days.get())
+        except ValueError:
+            days = 30
+        self._render_pie(chart_days=30)
+        self._render_bars(days)
+        self._fill_side()
+        self._build_overview()
+
+    def _render_bars(self, days):
+        try:
+            import matplotlib
+            matplotlib.use("TkAgg", force=True)
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            from matplotlib.figure import Figure
+        except ImportError:
+            return self._draw_ascii_bars(days)
+        for c in self.chart_frame.winfo_children():
+            c.destroy()
+        data = ops.revenue_by_range(days)
+        x = [r["day"][5:] for r in data]
+        y = [r["revenue"] for r in data]
+        fig = Figure(figsize=(6, 3.4), dpi=90, facecolor="#0f172a")
+        ax = fig.add_subplot(111)
+        ax.set_facecolor("#0f172a")
+        ax.bar(x, y, color="#38bdf8" if len(x) < 35 else "none",
+               edgecolor="#38bdf8", linewidth=0.6)
+        if len(x) >= 35:
+            ax.plot(x, y, color="#38bdf8")
+        ax.set_title("Daily Revenue", color="#e2e8f0")
+        ax.tick_params(colors="#94a3b8")
+        ax.grid(color="#334155", alpha=0.4)
+        ax.set_ylabel(CURRENCY_SYMBOL, color="#94a3b8")
+        if len(x) > 12:
+            ax.set_xticks(range(0, len(x), max(1, len(x) // 12)))
+        fig.tight_layout()
+        canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def _draw_ascii_bars(self, days):
+        # Fallback when matplotlib missing.
+        for c in self.chart_frame.winfo_children():
+            c.destroy()
+        data = ops.revenue_by_range(days)
+        box = tk.Text(self.chart_frame, bg=PANEL, fg=TEXT, relief="flat",
+                      font=("Consolas", 10))
+        box.pack(fill="both", expand=True)
+        box.insert("1.0", "  Daily Revenue\n")
+        if not data:
+            box.insert("end", "  No sales yet.\n")
+            return
+        mx = max(r["revenue"] for r in data) or 1
+        for r in data:
+            bar = "█" * int(30 * r["revenue"] / mx)
+            box.insert("end", f"  {r['day'][5:]} {bar} {fmt_money(r['revenue'])}\n")
+        box.configure(state="disabled")
+
+    def _render_pie(self, chart_days=30):
+        # Category share pie in the side panel.
+        try:
+            import matplotlib
+            matplotlib.use("TkAgg", force=True)
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            from matplotlib.figure import Figure
+        except ImportError:
+            return
+        cats = ops.sales_by_category()
+        if not cats:
+            return
+        fig = Figure(figsize=(3.2, 2.2), dpi=90, facecolor=PANEL)
+        ax = fig.add_subplot(111)
+        ax.pie([c["revenue"] for c in cats], labels=[c["category"] for c in cats],
+               autopct="%1.0f%%", textprops={"color": "white", "size": 8},
+               colors=["#38bdf8", "#2563eb", "#22c55e", "#f59e0b", "#ef4444",
+                       "#a855f7"])
+        fig.tight_layout(pad=0)
+        canvas = FigureCanvasTkAgg(fig, master=self.cat_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
+
+    def _fill_side(self):
+        self.side_tree.delete(*self.side_tree.get_children())
+        for p in ops.top_products(10):
+            self.side_tree.insert("", "end", text=p["name"], values=(p["units"],))
+
+    def _export_csv(self):
+        path = filedialog.asksaveasfilename(defaultextension=".csv",
+                                            filetypes=[("CSV", "*.csv")])
+        if not path:
+            return
+        from export import export_csv
+        export_csv(Path(path).name,
+                   ["Day", "Revenue"],
+                   [[r["day"], f"{r['revenue']:.2f}"] for r in ops.revenue_by_range(30)])
+        self.app._flash_status(f"CSV saved: {path}")
+
+    def _export_pdf(self):
+        path = filedialog.asksaveasfilename(defaultextension=".pdf",
+                                            filetypes=[("PDF", "*.pdf")])
+        if not path:
+            return
+        try:
+            from export import export_pdf
+            prof = ops.profit_overall()
+            sections = [
+                ("Profit Overview", [
+                    ("Revenue", fmt_money(prof['revenue'])),
+                    ("Cost", fmt_money(prof['cost'])),
+                    ("Profit", fmt_money(prof['profit'])),
+                    ("Margin", f"{prof['margin']:.1f}%"),
+                ]),
+                ("Top Products", [
+                    (p["name"], str(p["units"]), fmt_money(p['revenue']))
+                    for p in ops.top_products(10)
+                ]),
+            ]
+            export_pdf("Store Sales Report", sections)
+            self.app._flash_status("PDF saved to exports/report.pdf")
+        except Exception as e:
+            messagebox.showerror("PDF", f"Could not build PDF: {e}")
+
+
+def run_gui():
+    init_db()
+    conn = ops.get_conn()
+    count = conn.execute("SELECT COUNT(*) FROM employees").fetchone()[0]
+    conn.close()
+    if count == 0:
+        ops.add_employee("Manager", "Manager", "1234")
+
+    root = tk.Tk()
+    root.title("ElectronStore POS - Login")
+    root.geometry("420x260")
+    root.resizable(False, False)
+
+    def report_error(exc, val, tb):
+        import traceback
+        messagebox.showerror("ElectronStore", "Unexpected error:\n" + "".join(
+            traceback.format_exception(exc, val, tb)))
+        root.destroy()
+
+    root.report_callback_exception = report_error
+
+    LoginWindow(root)
+    root.mainloop()
+
+
+class LoginWindow(tk.Frame):
+    def __init__(self, root):
+        super().__init__(root, bg=BG)
+        self.root = root
+        self.pack(fill="both", expand=True)
+
+        tk.Label(self, text="ElectronStore", bg=BG, fg=ACCENT,
+                 font=("Segoe UI", 24, "bold")).pack(pady=(30, 4))
+        tk.Label(self, text="Enter your PIN to continue", bg=BG, fg=MUTED,
+                 font=("Segoe UI", 12)).pack(pady=(0, 16))
+
+        self.pin = tk.StringVar()
+        entry = RoundedEntry(self, textvariable=self.pin, show="*",
+                             bg=PANEL, fg=TEXT, justify="center",
+                             font=("Segoe UI", 18), width_chars=10)
+        entry.pack(pady=6)
+        entry.entry.bind("<Return>", lambda _: self.try_login())
+        entry.entry.focus_set()
+
+        AccentButton(self, text="Login", command=self.try_login,
+                     bg=SUCCESS).pack(pady=12)
+
+        self.status = tk.Label(self, text="", bg=BG, fg=DANGER,
+                               font=("Segoe UI", 10))
+        self.status.pack()
+
+    def try_login(self):
+        emp = ops.auth_employee(self.pin.get())
+        if not emp:
+            self.status.configure(text="Invalid PIN")
+            self.pin.set("")
+            return
+        self.destroy()
+        self.root.configure(bg=BG)
+        self.root.title("ElectronStore POS")
+        self.root.geometry("1100x700")
+        self.root.resizable(True, True)
+        Toplevel(self.root, emp["id"], emp["name"]).pack(fill="both", expand=True)
+
+
+if __name__ == "__main__":
+    run_gui()
