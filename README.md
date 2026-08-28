@@ -120,6 +120,36 @@ py -m PyInstaller electronstore.spec --noconfirm
 
 ---
 
+## Online installer (Start Menu setup)
+
+If you'd rather hand the shop a single small *installer* that downloads the app
+and adds a **Start Menu** shortcut:
+
+1. **Publish the app**: create a GitHub **Release** for this repo and attach
+   `dist\ElectronStore.exe` as an asset named **exactly** `ElectronStore.exe`.
+   The installer downloads it from
+   `/releases/latest/download/ElectronStore.exe`.
+2. **Build the installer** (on Windows): run `build_setup.bat`. It builds both
+   the app exe and `dist\ElectronStoreSetup.exe`.
+3. **Give the shop `ElectronStoreSetup.exe`**. Running it downloads the app,
+   installs it to `%LOCALAPPDATA%\Programs\ElectronStore`, adds **Start Menu**
+   and desktop shortcuts, registers it under **Settings → Apps** (uninstallable),
+   and offers to launch it right away.
+
+Notes:
+
+- **Dependencies**: Python, Tkinter, matplotlib, and reportlab are already
+  inside the app exe, so the setup file only downloads that one file.
+- **Updates**: publish a new Release (same asset name) and re-run the installer
+  to update. Sales data is never touched — it lives separately in
+  `%LOCALAPPDATA%\ElectronStore`.
+- **No admin needed** (per-user install), and no internet is needed afterwards —
+  only while the installer downloads.
+- **Custom download URL**: build/ship with `ELECTRONSTORE_DOWNLOAD_URL=...` set
+  or run the installer with `--url <address>` (e.g. a private mirror).
+
+---
+
 ## Usage
 
 ### Logging in
