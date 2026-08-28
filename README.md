@@ -148,6 +148,23 @@ Notes:
 - **Custom download URL**: build/ship with `ELECTRONSTORE_DOWNLOAD_URL=...` set
   or run the installer with `--url <address>` (e.g. a private mirror).
 
+### Publishing a release (so the installer can download)
+
+From the project folder (on the build PC), after `build_setup.bat` has produced
+`dist\ElectronStore.exe`:
+
+```bash
+gh release create v1.0 "dist/ElectronStore.exe" --title "ElectronStore 1.0" --notes "First release"
+```
+
+- The asset must keep the name **`ElectronStore.exe`** (that's exactly what the
+  build outputs), otherwise `/releases/latest/download/...` won't resolve it.
+- Every time you want the shop to update, create a **new** release with a new
+  tag (e.g. `v1.1`, `v1.2`, …) — `latest` always points at the most recent
+  non-draft release, and the shop just runs `ElectronStoreSetup.exe` again.
+- Draft, or replace an uploaded asset by deleting the old one in the GitHub
+  web UI and re-attaching — or simply make a new release instead.
+
 ---
 
 ## Usage
