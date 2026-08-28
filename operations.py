@@ -17,8 +17,6 @@ def add_product(name, category, code, price, cost_price, stock_qty):
         return False, "Product code already exists"
     finally:
         conn.close()
-
-
 def list_products(search=None):
     conn = get_conn()
     if search:
@@ -59,12 +57,17 @@ def low_stock(threshold=5):
     return rows
 
 
-def create_sale(cashier_id, payment_method, items):
-    """items = list of (product_id, quantity, discount)"""
+def create_sale(cashier_id, payment_method, items, tendered=0):
+    """items = list of (product_id, quantity, discount)
+
+    All money values are integer shillings. tendered (cash) is used to
+    compute change owed. Returns (True, sale_id) on success.
+    """
     conn = get_conn()
     try:
-        total = 0.0
-        for product_id, qty, discount in items:
+        total = 0
+        line_items = []
+        for product_id, qty, line_discount in items:
             prod = conn.execute(
                 "SELECT * FROM products WHERE id=?", (product_id,)
             ).fetchone()
@@ -72,26 +75,32 @@ def create_sale(cashier_id, payment_method, items):
                 raise ValueError(f"Product {product_id} not found")
             if prod["stock_qty"] < qty:
                 raise ValueError(f"Insufficient stock for {prod['name']}")
-            total += (prod["price"] - discount) * qty
+            line_total = (prod["price"] - line_discount) * qty
+            total += line_total
+            line_items.append((prod, qty, line_discount, line_total))
+
+        change = 0
+        if payment_method == "cash":
+            if tendered < total:
+                raise ValueError("Amount tendered is less than the total")
+            change = tendered - total
 
         cur = conn.execute(
-            "INSERT INTO sales (cashier_id, total, payment_method) VALUES (?, ?, ?)",
-            (cashier_id, total, payment_method),
+            "INSERT INTO sales (cashier_id, total, payment_method, tendered, change) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (cashier_id, total, payment_method, tendered, change),
         )
         sale_id = cur.lastrowid
 
-        for product_id, qty, discount in items:
-            prod = conn.execute(
-                "SELECT * FROM products WHERE id=?", (product_id,)
-            ).fetchone()
+        for prod, qty, line_discount, line_total in line_items:
             conn.execute(
                 "INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, discount) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (sale_id, product_id, qty, prod["price"], discount),
+                (sale_id, prod["id"], qty, prod["price"], line_discount),
             )
             conn.execute(
                 "UPDATE products SET stock_qty = stock_qty - ? WHERE id=?",
-                (qty, product_id),
+                (qty, prod["id"]),
             )
 
         conn.commit()
@@ -99,6 +108,56 @@ def create_sale(cashier_id, payment_method, items):
     except ValueError as e:
         conn.rollback()
         return False, str(e)
+    finally:
+        conn.close()
+
+
+def get_sale(sale_id):
+    """Return a sale row with its line items."""
+    conn = get_conn()
+    sale = conn.execute(
+        "SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone()
+    if sale:
+        items = conn.execute(
+            """
+            SELECT si.*, p.name
+            FROM sale_items si JOIN products p ON p.id = si.product_id
+            WHERE si.sale_id=? ORDER BY si.id
+            """,
+            (sale_id,),
+        ).fetchall()
+    else:
+        items = []
+    conn.close()
+    return sale, items
+
+
+def void_sale(sale_id, reason=""):
+    """Reverse a sale: restock items, mark it voided. Guards against double-void."""
+    conn = get_conn()
+    try:
+        sale = conn.execute(
+            "SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone()
+        if not sale:
+            return False, "Sale not found"
+        if sale["voided"]:
+            return False, "Sale already voided"
+        items = conn.execute(
+            "SELECT * FROM sale_items WHERE sale_id=?", (sale_id,)).fetchall()
+        for it in items:
+            conn.execute(
+                "UPDATE products SET stock_qty = stock_qty + ? WHERE id=?",
+                (it["quantity"], it["product_id"]),
+            )
+        conn.execute(
+            "UPDATE sales SET voided=1, void_reason=? WHERE id=?",
+            (reason, sale_id),
+        )
+        conn.commit()
+        return True, "Sale voided and restocked"
+    except Exception:
+        conn.rollback()
+        return False, "Could not void sale"
     finally:
         conn.close()
 
@@ -204,8 +263,24 @@ def sales_report():
     rows = conn.execute(
         """
         SELECT date(datetime) as day, count(*) as num_sales, sum(total) as revenue
-        FROM sales GROUP BY day ORDER BY day DESC LIMIT 14
+        FROM sales WHERE voided=0 GROUP BY day ORDER BY day DESC LIMIT 14
         """
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def recent_sales(limit=20):
+    """Most recent sales (non-voided), for review/voiding."""
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT s.id, s.datetime, s.total, s.payment_method, s.tendered, s.change,
+               s.cashier_id, e.name as cashier, s.voided, s.void_reason
+        FROM sales s LEFT JOIN employees e ON e.id = s.cashier_id
+        ORDER BY s.id DESC LIMIT ?
+        """,
+        (limit,),
     ).fetchall()
     conn.close()
     return rows
@@ -216,7 +291,10 @@ def top_products(limit=5):
     rows = conn.execute(
         """
         SELECT p.name, sum(si.quantity) as units, sum(si.quantity * si.unit_price) as revenue
-        FROM sale_items si JOIN products p ON p.id = si.product_id
+        FROM sale_items si
+        JOIN products p ON p.id = si.product_id
+        JOIN sales s ON s.id = si.sale_id
+        WHERE s.voided=0
         GROUP BY p.id ORDER BY units DESC LIMIT ?
         """,
         (limit,),
@@ -234,7 +312,7 @@ def revenue_by_range(days=30):
                COALESCE(sum(total), 0) as revenue,
                count(*) as num_sales
         FROM sales
-        WHERE date(datetime) >= date('now', ?)
+        WHERE voided=0 AND date(datetime) >= date('now', ?)
         GROUP BY day ORDER BY day ASC
         """,
         (f"-{days} days",),
@@ -251,6 +329,8 @@ def sales_by_category():
         SELECT p.category, sum(si.quantity) as units,
                sum(si.quantity * si.unit_price) as revenue
         FROM sale_items si JOIN products p ON p.id = si.product_id
+        JOIN sales s ON s.id = si.sale_id
+        WHERE s.voided=0
         GROUP BY p.category ORDER BY revenue DESC
         """
     ).fetchall()
@@ -268,6 +348,8 @@ def profit_by_product(limit=10):
                sum(si.quantity * p.cost_price) as cost,
                sum(si.quantity * (si.unit_price - si.discount - p.cost_price)) as profit
         FROM sale_items si JOIN products p ON p.id = si.product_id
+        JOIN sales s ON s.id = si.sale_id
+        WHERE s.voided=0
         GROUP BY p.id ORDER BY profit DESC LIMIT ?
         """,
         (limit,),
@@ -284,6 +366,8 @@ def profit_overall():
         SELECT sum(si.quantity * (si.unit_price - si.discount)) as revenue,
                sum(si.quantity * p.cost_price) as cost
         FROM sale_items si JOIN products p ON p.id = si.product_id
+        JOIN sales s ON s.id = si.sale_id
+        WHERE s.voided=0
         """
     ).fetchone()
     conn.close()

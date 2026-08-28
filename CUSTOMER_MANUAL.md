@@ -26,11 +26,13 @@ sales, add products, check reports, and keep your data backed up.*
 
 ## 2. The main screen
 
-After logging in you will see the main window with four tabs at the top:
+After logging in you will see the main window with five tabs at the top:
 
 - **New Sale** — where you ring up customers.
 - **Products** — where you add and check your stock.
 - **Reports** — where you see your sales and profit.
+- **Sales** — a list of recent sales, where you can view a receipt or void a
+  mistake (managers only).
 - **Employees** — where staff accounts are managed (managers only).
 
 There is also a green **Backup** button at the top right, and a **Logout** link.
@@ -48,14 +50,35 @@ This is the screen you will use most.
 3. Click **Add to Cart** (or double-click the product).
    The item appears in the cart on the right, and the **total** updates.
 4. Repeat for every item the customer is buying.
-5. Choose the **payment method**: Cash, Card, or Mobile.
-6. Click **Charge**.
+5. *(Optional)* To give a discount on a line: select that item in the cart,
+   type the discount in the **Line discount** box, and click **Apply**.
+6. Choose the **payment method**: Cash, Card, or Mobile.
+   - If **Cash**, a small window asks how much money you received — type the
+     amount and the app works out and shows the **change**.
+7. Click **Charge**.
 
-> A green **"Sale successful"** message appears, and the money is recorded.
-> The stock for those products is reduced automatically.
+> A green **"Sale successful"** message appears, and a **receipt** pops up so you
+> can review or save/print it. The stock for those products is reduced
+> automatically.
 
 **To remove a wrong item:** select it in the cart list and press the **Delete**
 key on your keyboard.
+
+---
+
+## 3.5 Fixing a mistake — voiding a sale (Sales tab)
+
+If you ring up a sale by mistake, you can undo it.
+
+1. Go to the **Sales** tab to see the list of recent sales.
+2. Double-click any sale to open its **receipt**.
+3. **(Manager only)** Select the wrong sale in the list and click
+   **Void Selected Sale**, then confirm.
+4. The items are **returned to stock** and the sale is marked **VOIDED**.
+   Voided sales are left out of the revenue and profit reports.
+
+> Only **Managers** can void sales. If you are not a manager and a sale needs
+> correcting, ask your manager.
 
 ---
 
@@ -190,11 +213,14 @@ everyone, but only **Managers** can make changes.
 | Task | Where | How |
 | ---- | ----- | --- |
 | Ring up a sale | New Sale | search → qty → Add to Cart → Charge |
+| Discount a line | New Sale | select cart item → Line discount → Apply |
 | Remove cart item | New Sale | select item → press Delete |
 | Add stock | Products | fill form → Add Product |
 | Check stock alerts | Products | amber = low, red = none |
 | See profit | Reports | Revenue / Profit / Margin cards |
 | Export report | Reports | Export CSV or Export PDF |
+| View a receipt | Sales | double-click a sale |
+| Void a sale (Manager) | Sales | select sale → Void Selected Sale |
 | Back up | Backup button (top right) | click it |
 | Add staff | Employees (Manager) | name + role + PIN → Add |
 | Reset a PIN | Employees (Manager) | select → Reset PIN |

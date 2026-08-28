@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS products (
     name TEXT NOT NULL,
     category TEXT NOT NULL,
     code TEXT UNIQUE,
-    price REAL NOT NULL,
-    cost_price REAL NOT NULL,
+    price INTEGER NOT NULL,
+    cost_price INTEGER NOT NULL,
     stock_qty INTEGER NOT NULL DEFAULT 0
 );
 
@@ -25,8 +25,12 @@ CREATE TABLE IF NOT EXISTS sales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     datetime TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     cashier_id INTEGER,
-    total REAL NOT NULL,
+    total INTEGER NOT NULL,
     payment_method TEXT NOT NULL,
+    tendered INTEGER,
+    change INTEGER,
+    voided INTEGER NOT NULL DEFAULT 0,
+    void_reason TEXT,
     FOREIGN KEY (cashier_id) REFERENCES employees(id)
 );
 
@@ -35,8 +39,8 @@ CREATE TABLE IF NOT EXISTS sale_items (
     sale_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
-    unit_price REAL NOT NULL,
-    discount REAL NOT NULL DEFAULT 0,
+    unit_price INTEGER NOT NULL,
+    discount INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (sale_id) REFERENCES sales(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
@@ -50,11 +54,57 @@ def get_conn():
     return conn
 
 
+def _column_types(conn, table):
+    return {
+        r[1]: r[2]
+        for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+
+
 def _migrate(conn):
-    """Rename legacy 'sku' column to 'code' if it still exists."""
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(products)").fetchall()]
-    if "sku" in cols and "code" not in cols:
+    """Upgrade older databases to the current schema."""
+    pcols = _column_types(conn, "products")
+    if "sku" in pcols and "code" not in pcols:
         conn.execute("ALTER TABLE products RENAME COLUMN sku TO code")
+
+    scols = _column_types(conn, "sales")
+    # Add void columns to existing sales tables (idempotent)
+    if "voided" not in scols:
+        conn.execute(
+            "ALTER TABLE sales ADD COLUMN voided INTEGER NOT NULL DEFAULT 0"
+        )
+    if "void_reason" not in scols:
+        conn.execute("ALTER TABLE sales ADD COLUMN void_reason TEXT")
+    if "tendered" not in scols:
+        conn.execute("ALTER TABLE sales ADD COLUMN tendered INTEGER")
+    if "change" not in scols:
+        conn.execute("ALTER TABLE sales ADD COLUMN change INTEGER")
+
+    def money_to_int(table, col):
+        if table in ("products",) and col in pcols:
+            ctype = pcols[col]
+            if ctype.upper() not in ("INTEGER", "INT"):
+                conn.execute(
+                    f"UPDATE {table} SET {col} = CAST(ROUND({col}) AS INTEGER)"
+                )
+        elif table in ("sales",):
+            cols = _column_types(conn, "sales")
+            if col in cols and cols[col].upper() not in ("INTEGER", "INT"):
+                conn.execute(
+                    f"UPDATE {table} SET {col} = CAST(ROUND({col}) AS INTEGER)"
+                )
+        elif table in ("sale_items",):
+            cols = _column_types(conn, "sale_items")
+            if col in cols and cols[col].upper() not in ("INTEGER", "INT"):
+                conn.execute(
+                    f"UPDATE {table} SET {col} = CAST(ROUND({col}) AS INTEGER)"
+                )
+
+    # Convert money columns to integers where they are still REAL
+    for t, c in [("products", "price"), ("products", "cost_price"),
+                 ("sales", "total"), ("sales", "tendered"), ("sales", "change"),
+                 ("sale_items", "unit_price"), ("sale_items", "discount")]:
+        money_to_int(t, c)
 
 
 def init_db():

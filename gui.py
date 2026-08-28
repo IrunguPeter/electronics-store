@@ -1,5 +1,7 @@
+import os
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, font as tkfont, messagebox, ttk
 
@@ -33,8 +35,8 @@ def _lighten(color, amount):
 
 
 def fmt_money(amount):
-    """Format an amount as Kenyan Shillings, e.g. 12,345.50 KSh."""
-    return f"{CURRENCY_SYMBOL} {amount:,.2f}"
+    """Format an amount as whole Kenyan Shillings, e.g. 12,345 KSh."""
+    return f"{CURRENCY_SYMBOL} {int(round(float(amount))):,}"
 
 
 def _rounded_points(x1, y1, x2, y2, r):
@@ -237,6 +239,7 @@ class Toplevel(tk.Frame):
             "sale": SaleView,
             "products": ProductsView,
             "reports": ReportsView,
+            "sales": SalesView,
             "employees": EmployeesView,
         }
         self.show("sale")
@@ -259,6 +262,7 @@ class Toplevel(tk.Frame):
             ("sale", "New Sale"),
             ("products", "Products"),
             ("reports", "Reports"),
+            ("sales", "Sales"),
             ("employees", "Employees"),
         ]:
             b = tk.Label(
@@ -443,6 +447,18 @@ class SaleView(tk.Frame):
         )
         self.total_lbl.pack(anchor="e", pady=6)
 
+        # Per-line discount (applies to the selected cart line)
+        disc = tk.Frame(right, bg=PANEL)
+        disc.pack(fill="x", pady=2)
+        tk.Label(disc, text="Line discount KSh:", bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 10)).pack(side="left")
+        self.disc_var = tk.StringVar(value="0")
+        RoundedEntry(disc, textvariable=self.disc_var, bg=PANEL2, fg=TEXT,
+                     font=("Segoe UI", 11), width_chars=6).pack(
+            side="left", padx=4)
+        AccentButton(disc, text="Apply", command=self._apply_discount,
+                     bg=PANEL2).pack(side="left")
+
         pm = tk.Frame(right, bg=PANEL)
         pm.pack(fill="x", pady=4)
         self.pmethod = tk.StringVar(value="cash")
@@ -488,7 +504,7 @@ class SaleView(tk.Frame):
                 break
         else:
             self.cart.append({"id": pid, "name": prod["name"], "qty": qty,
-                              "price": prod["price"]})
+                              "price": prod["price"], "discount": 0})
         self._render_cart()
         self._count_up()
 
@@ -499,21 +515,49 @@ class SaleView(tk.Frame):
         del self.cart[sel[0]]
         self._render_cart()
 
+    def _apply_discount(self):
+        """Apply the discount field to the currently selected cart line."""
+        sel = self.cart_list.curselection()
+        if not sel:
+            self.app._flash_status("Select a cart line to discount")
+            return
+        try:
+            d = int(self.disc_var.get().strip().replace(",", "").replace("KSh", ""))
+        except ValueError:
+            messagebox.showerror("Discount", "Enter a whole number of shillings")
+            return
+        item = self.cart[sel[0]]
+        if d < 0:
+            messagebox.showerror("Discount", "Discount cannot be negative")
+            return
+        if d > item["price"]:
+            messagebox.showerror(
+                "Discount", "Discount cannot exceed the unit price")
+            return
+        item["discount"] = d
+        self.disc_var.set("0")
+        self._render_cart()
+        self.app._flash_status(f"Discount applied to {item['name']}")
+
     def _render_cart(self):
         self.cart_list.delete(0, "end")
-        self.total = 0.0
-        for item in self.cart:
-            self.total += item["price"] * item["qty"]
+        self.total = 0
+        for idx, item in enumerate(self.cart):
+            line = (item["price"] - item["discount"]) * item["qty"]
+            self.total += line
+            name = item["name"]
+            if item["discount"]:
+                name += f" (-{item['discount']})"
             self.cart_list.insert(
                 "end",
-                f"{item['qty']:>3} x {item['name']:<24} {fmt_money(item['price']*item['qty']):>14}",
+                f"{item['qty']:>3} x {name:<30} {fmt_money(line):>13}",
             )
         self.total_lbl.configure(text=fmt_money(self.total))
 
     def _count_up(self):
         # animate total from 0 to target over ~0.3s
         target = self.total
-        start = 0.0
+        start = 0
         steps = 12
 
         def step(i):
@@ -523,7 +567,7 @@ class SaleView(tk.Frame):
             frac = i / steps
             eased = 1 - (1 - frac) ** 2
             self.total_lbl.configure(
-                text=fmt_money(start + (target - start) * eased))
+                text=fmt_money(round(start + (target - start) * eased)))
             self.after(18, lambda: step(i + 1))
 
         step(0)
@@ -532,16 +576,71 @@ class SaleView(tk.Frame):
         if not self.cart:
             self.app._flash_status("Cart is empty")
             return
-        items = [(i["id"], i["qty"], 0) for i in self.cart]
-        ok, result = ops.create_sale(self.app.cashier_id, self.pmethod.get(), items)
+        method = self.pmethod.get()
+        tendered = 0
+        if method == "cash":
+            tendered = self._prompt_tendered()
+            if tendered is None:
+                return
+        items = [(i["id"], i["qty"], i["discount"]) for i in self.cart]
+        ok, result = ops.create_sale(
+            self.app.cashier_id, method, items, tendered=tendered)
         if not ok:
             messagebox.showerror("Checkout", result)
             self._search()
             return
         self._celebrate(result)
+        self._show_receipt(result, tendered)
         self.cart.clear()
         self._render_cart()
         self._search()
+
+    def _prompt_tendered(self):
+        """Ask for the cash amount tendered. Returns int or None if cancelled."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Cash Tendered")
+        dialog.configure(bg=BG)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        result = {"value": None}
+
+        tk.Label(
+            dialog, text=f"Total: {fmt_money(self.total)}", bg=BG, fg=TEXT,
+            font=("Segoe UI", 14, "bold"), padx=20, pady=(14, 4),
+        ).pack()
+        tk.Label(
+            dialog, text="Amount received:", bg=BG, fg=MUTED,
+            font=("Segoe UI", 11),
+        ).pack()
+        var = tk.StringVar()
+        entry = RoundedEntry(dialog, textvariable=var, bg=PANEL, fg=TEXT,
+                             font=("Segoe UI", 14), width_chars=12)
+        entry.pack(padx=20, pady=8)
+        entry.entry.focus_set()
+
+        def confirm():
+            try:
+                amt = int(var.get().strip().replace(",", "").replace("KSh", ""))
+            except ValueError:
+                messagebox.showerror("Cash", "Enter a whole number of shillings")
+                return
+            if amt < self.total:
+                messagebox.showerror("Cash", "Amount tendered is less than the total")
+                return
+            result["value"] = amt
+            dialog.destroy()
+
+        entry.entry.bind("<Return>", lambda _: confirm())
+        btns = tk.Frame(dialog, bg=BG)
+        btns.pack(pady=(4, 14))
+        AccentButton(btns, text="OK", command=confirm).pack(side="left", padx=6)
+        AccentButton(
+            btns, text="Cancel", command=dialog.destroy, bg=PANEL2).pack(
+            side="left", padx=6)
+
+        dialog.wait_window()
+        return result["value"]
 
     def _celebrate(self, sale_id):
         overlay = tk.Toplevel(self)
@@ -564,6 +663,220 @@ class SaleView(tk.Frame):
                 f"{300 + s*4}x{180 + s*3}+{x - s*2}+{y - s*2}",
             ))
         overlay.after(1100, overlay.destroy)
+
+    def _show_receipt(self, sale_id, tendered):
+        """Show an on-screen printable receipt for the completed sale."""
+        win = tk.Toplevel(self)
+        win.title(f"Receipt - Sale #{sale_id}")
+        win.configure(bg=BG)
+        win.transient(self)
+        win.grab_set()
+
+        text = tk.Text(win, bg="white", fg="black", font=("Consolas", 11),
+                       padx=14, pady=10, wrap="none", relief="flat",
+                       width=40, height=24)
+        text.pack(padx=10, pady=10)
+
+        cashier = self.app.cashier_name
+        lines = [
+            "        ELECTRONSTORE POS        ",
+            "---------------------------------",
+            f"Sale #: {sale_id:>22}",
+            f"Date: {datetime.now():%Y-%m-%d %H:%M}",
+            f"Cashier: {cashier}",
+            "---------------------------------",
+        ]
+        for it in self.cart:
+            unit = it["price"]
+            if it["discount"]:
+                unit -= it["discount"]
+            line_total = unit * it["qty"]
+            lines.append(f"{it['name']}")
+            lines.append(
+                f"  {it['qty']} x {fmt_money(unit)}  {fmt_money(line_total):>14}")
+        lines += [
+            "---------------------------------",
+            f"TOTAL{fmt_money(self.total):>31}",
+        ]
+        if tendered:
+            lines += [
+                f"Tendered{fmt_money(tendered):>28}",
+                f"Change{fmt_money(tendered - self.total):>30}",
+            ]
+        lines += [
+            "---------------------------------",
+            "      THANK YOU - COME AGAIN      ",
+        ]
+        text.insert("1.0", "\n".join(lines))
+        text.configure(state="disabled")
+
+        def print_receipt():
+            try:
+                text.configure(state="normal")
+                text.update_idletasks()
+                text.postscript(file=os.path.join(
+                    "exports", f"receipt_{sale_id}.ps"))
+                text.configure(state="disabled")
+            except Exception:
+                messagebox.showinfo(
+                    "Print", "Open the receipt screen and use your system "
+                    "print dialog / screenshot to print.")
+            out_dir = Path("exports")
+            out_dir.mkdir(exist_ok=True)
+            backup = out_dir / f"receipt_{sale_id}.txt"
+            with open(backup, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+            self.app._flash_status(f"Receipt saved to {backup}")
+
+        btns = tk.Frame(win, bg=BG)
+        btns.pack(pady=(0, 10))
+        AccentButton(btns, text="Save / Print", command=print_receipt).pack(
+            side="left", padx=6)
+        AccentButton(btns, text="Close", command=win.destroy, bg=PANEL2).pack(
+            side="left", padx=6)
+
+
+# --------------------------------------------------------------------------
+# SALES VIEW (recent sales, view receipt, void)
+# --------------------------------------------------------------------------
+class SalesView(tk.Frame):
+    def __init__(self, master, app):
+        super().__init__(master, bg=BG)
+        self.app = app
+
+        top = tk.Frame(self, bg=BG)
+        top.pack(fill="x", padx=10, pady=10)
+        tk.Label(top, text="Recent Sales", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 14, "bold")).pack(side="left")
+        AccentButton(top, text="Refresh", command=self._refresh).pack(
+            side="right", padx=6)
+        AccentButton(top, text="Void Selected Sale",
+                     command=self._void_sale, bg=DANGER).pack(
+            side="right", padx=6
+        )
+
+        cols = ("id", "datetime", "total", "method", "cashier", "status")
+        self.tree = ttk.Treeview(self, columns=cols, show="headings")
+        self.tree.heading("id", text="#")
+        self.tree.heading("datetime", text="Date & Time")
+        self.tree.heading("total", text="Total")
+        self.tree.heading("method", text="Method")
+        self.tree.heading("cashier", text="Cashier")
+        self.tree.heading("status", text="Status")
+        self.tree.column("id", width=70, anchor="center")
+        self.tree.column("datetime", width=180, anchor="center")
+        self.tree.column("total", width=120, anchor="center")
+        self.tree.column("method", width=90, anchor="center")
+        self.tree.column("cashier", width=140, anchor="center")
+        self.tree.column("status", width=110, anchor="center")
+        style = ttk.Style()
+        style.configure("Treeview", background=PANEL, fieldbackground=PANEL,
+                        foreground=TEXT, rowheight=28, borderwidth=0)
+        style.configure("Treeview.Heading", background=PANEL2, foreground=TEXT,
+                        relief="flat", font=("Segoe UI", 10, "bold"))
+        self.tree.pack(fill="both", expand=True, padx=10, pady=6)
+        self.tree.tag_configure("voided", foreground=MUTED)
+        self.tree.bind("<Double-Button-1>", lambda _: self._view_receipt())
+
+        info = tk.Label(
+            self, text="Double-click a sale to view its receipt. Only Managers "
+                       "can void a sale (restocks items).",
+            bg=BG, fg=MUTED, font=("Segoe UI", 9), anchor="w",
+        )
+        info.pack(fill="x", padx=12, pady=(0, 10))
+
+        self._refresh()
+
+    def _refresh(self):
+        self.tree.delete(*self.tree.get_children())
+        for s in ops.recent_sales(50):
+            status = "VOIDED" if s["voided"] else "OK"
+            tag = "voided" if s["voided"] else ""
+            self.tree.insert("", "end", iid=str(s["id"]), values=(
+                s["id"], s["datetime"], fmt_money(s["total"]),
+                s["payment_method"].title(), s["cashier"] or "-", status,
+            ), tags=(tag,))
+
+    def _selected_id(self):
+        try:
+            return int(self.tree.selection()[0])
+        except (IndexError, ValueError):
+            return None
+
+    def _view_receipt(self):
+        sale_id = self._selected_id()
+        if not sale_id:
+            return
+        sale, items = ops.get_sale(sale_id)
+        if not sale:
+            messagebox.showerror("Receipt", "Sale not found")
+            return
+        win = tk.Toplevel(self)
+        win.title(f"Receipt - Sale #{sale_id}")
+        win.configure(bg=BG)
+        win.transient(self)
+        text = tk.Text(win, bg="white", fg="black", font=("Consolas", 11),
+                       padx=14, pady=10, wrap="none", relief="flat",
+                       width=40, height=24)
+        text.pack(padx=10, pady=10)
+        lines = [
+            "        ELECTRONSTORE POS        ",
+            "---------------------------------",
+            f"Sale #: {sale['id']:>21}",
+            f"Date: {sale['datetime']}",
+            "---------------------------------",
+        ]
+        for it in items:
+            unit = it["unit_price"] - it["discount"]
+            lines.append(f"{it['name']}")
+            lines.append(
+                f"  {it['quantity']} x {fmt_money(unit)}  "
+                f"{fmt_money(unit * it['quantity']):>14}")
+        lines += [
+            "---------------------------------",
+            f"TOTAL{fmt_money(sale['total']):>31}",
+        ]
+        if sale["payment_method"] == "cash" and sale["tendered"]:
+            lines += [
+                f"Tendered{fmt_money(sale['tendered']):>28}",
+                f"Change{fmt_money(sale['change']):>30}",
+            ]
+        if sale["voided"]:
+            lines += [
+                "---------------------------------",
+                f"   ** VOIDED ** {sale['void_reason'] or ''}",
+            ]
+        lines += [
+            "---------------------------------",
+            "      THANK YOU - COME AGAIN      ",
+        ]
+        text.insert("1.0", "\n".join(lines))
+        text.configure(state="disabled")
+        AccentButton(win, text="Close", command=win.destroy, bg=PANEL2).pack(
+            pady=(0, 10))
+
+    def _void_sale(self):
+        if not self.app.is_manager:
+            messagebox.showerror("Void", "Only Managers can void a sale")
+            return
+        sale_id = self._selected_id()
+        if not sale_id:
+            self.app._flash_status("Select a sale to void")
+            return
+        sale, _ = ops.get_sale(sale_id)
+        if not sale:
+            return
+        if sale["voided"]:
+            messagebox.showerror("Void", "That sale is already voided")
+            return
+        if not messagebox.askyesno(
+                "Void Sale",
+                f"Void sale #{sale_id} for {fmt_money(sale['total'])}? "
+                "Items will be returned to stock."):
+            return
+        ok, msg = ops.void_sale(sale_id)
+        messagebox.showinfo("Void", msg)
+        self._refresh()
 
 
 # --------------------------------------------------------------------------
@@ -620,13 +933,20 @@ class ProductsView(tk.Frame):
         self._refresh()
 
     def _add(self):
+        def parse_int(s, what):
+            s = s.strip().replace(",", "").replace("KSh", "").replace(" ", "")
+            try:
+                return int(float(s))
+            except ValueError:
+                raise ValueError(f"{what} must be a number")
+
         try:
             ok, msg = ops.add_product(
                 self.vars["name"].get(),
                 self.vars["category"].get(),
                 self.vars["code"].get(),
-                float(self.vars["price"].get()),
-                float(self.vars["cost"].get()),
+                parse_int(self.vars["price"].get(), "Price"),
+                parse_int(self.vars["cost"].get(), "Cost"),
                 int(self.vars["stock"].get() or 0),
             )
         except ValueError:

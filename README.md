@@ -14,8 +14,12 @@ required to operate the shop.
 
 ## Features
 
-- **🛒 Point of Sale** — search products, add to cart, set quantities, and charge.
-  Choose payment method (cash / card / mobile). Stock is deducted automatically.
+- **🛒 Point of Sale** — search products, add to cart, set quantities and
+  per-line discounts, and charge. Choose payment method (cash / card / mobile).
+  For cash, enter the amount tendered and get change computed. Stock is deducted
+  automatically and a printable **receipt** is shown.
+- **🧾 Sales history & voids** — review recent sales, re-print a receipt, and
+  (as Manager) **void** a mistaken sale, which returns items to stock.
 - **📦 Product management** — add products with a product code, category, price,
   and cost. Search stock and get low-stock alerts.
 - **📊 Reports** — a dashboard with revenue, gross profit, and margin, plus a
@@ -92,8 +96,19 @@ Enter your PIN on the login screen. (Default: `1234`.) You can log out with the
 ### Recording a sale
 1. In the **New Sale** tab, search or click a product.
 2. Set the **Qty** and click **Add to Cart** (or double-click a product).
-3. Choose a **payment method** and click **Charge**.
-4. Stock is updated automatically and a success confirmation is shown.
+3. To discount a line, select it in the cart, enter a **Line discount** and
+   click **Apply**.
+4. Choose a **payment method**.
+   - For **cash**, enter the amount received — the app works out the change.
+5. Click **Charge**. Stock is updated, a success toast appears, and a printable
+   **receipt** is shown.
+
+### Voiding a sale
+1. Open the **Sales** tab to see recent sales.
+2. Double-click a sale to view its receipt.
+3. As **Manager**, select a sale and click **Void Selected Sale**.
+   Items are returned to stock and the sale is marked VOIDED. Voided sales are
+   excluded from the revenue and profit reports.
 
 ### Managing products
 In the **Products** tab, fill in the details and click **Add Product**:
@@ -143,10 +158,11 @@ Tables:
 | ----- | ------- |
 | `products` | product code, name, category, price, cost, stock |
 | `employees` | staff names, roles, and PINs |
-| `sales` | each sale: date, cashier, total, payment method |
+| `sales` | each sale: date, cashier, total, payment method, tendered/change |
 | `sale_items` | line items, quantities, unit prices, discounts |
 
-All prices are in **Kenya Shillings (KES)**.
+All prices are stored as **whole Kenya Shillings (KES)** (integer values), so
+money stays exact — no floating-point drift.
 
 > `store.db`, `backups/`, and `exports/` are git-ignored so your real shop data
 > is never accidentally pushed to GitHub.
@@ -164,8 +180,23 @@ electronics-store/
 ├── backup.py        # SQLite hot-backup + Google Drive upload (rclone)
 ├── export.py        # CSV and PDF report export
 ├── manual_backup.py # Standalone script for scheduled backups
+├── tests/           # pytest suite for the data layer
 └── requirements.txt
 ```
+
+---
+
+## Testing
+
+The data layer has a pytest suite in `tests/`:
+
+```bash
+pip install -r requirements.txt   # includes pytest
+python -m pytest tests/
+```
+
+Tests cover integer money handling, sale totals and change, stock deduction,
+void/restock, last-manager protection, and duplicate PIN rejection.
 
 ---
 
