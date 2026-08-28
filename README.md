@@ -99,7 +99,8 @@ Give the customer a single double-clickable file with no Python install needed.
 2. **Double-click `build_windows.bat`** (or run it from a terminal). It installs
    the dependencies plus PyInstaller, then builds the exe.
 3. When it finishes, the program is at
-   **`dist\ElectronStore.exe`**.
+   **`dist\ElectronStore.exe`**. The icon is baked in from `icon.ico`, so the
+   exe and its window/taskbar icon look right with no extra files to copy.
 4. Copy that **one file** to the shop PC. Place it in its own folder (e.g.
    `C:\ElectronStore\`).
 

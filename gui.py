@@ -7,6 +7,7 @@ from tkinter import filedialog, font as tkfont, messagebox, simpledialog, ttk
 import backup
 import operations as ops
 from db import init_db
+from paths import ICON_PATH
 
 # Palette
 BG = "#0f172a"        # slate-900
@@ -366,6 +367,7 @@ class Toplevel(tk.Frame):
         self.master.destroy()
         root = tk.Tk()
         root.report_callback_exception = LoginWindow._error_hook
+        _set_window_icon(root)
         LoginWindow(root)
         root.mainloop()
 
@@ -1545,6 +1547,15 @@ class EmployeesView(tk.Frame):
         self._refresh()
 
 
+def _set_window_icon(root):
+    """Best-effort window/taskbar icon (never crashes if the file is absent)."""
+    try:
+        if ICON_PATH.exists():
+            root.iconbitmap(str(ICON_PATH))
+    except Exception:
+        pass
+
+
 def run_gui():
     init_db()
     conn = ops.get_conn()
@@ -1558,6 +1569,7 @@ def run_gui():
     root.geometry("420x260")
     root.resizable(False, False)
     root.report_callback_exception = LoginWindow._error_hook
+    _set_window_icon(root)
 
     LoginWindow(root)
     root.mainloop()

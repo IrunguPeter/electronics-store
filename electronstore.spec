@@ -7,7 +7,7 @@
 
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [("icon.ico", ".")]
 binaries = []
 hiddenimports = []
 
@@ -45,6 +45,7 @@ exe = EXE(
     a.datas,
     [],
     name="ElectronStore",
+    icon="icon.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

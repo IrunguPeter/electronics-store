@@ -38,6 +38,17 @@ EXPORT_DIR = BASE_DIR / "exports"
 LOG_FILE = BASE_DIR / "electronstore.log"
 
 
+def _resource_root():
+    """Folder holding bundled assets (icon), source-run or frozen .exe."""
+    if getattr(sys, "frozen", False):
+        # --onefile extracts bundled data to a temp _MEIPASS folder.
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return Path(__file__).resolve().parent
+
+
+ICON_PATH = _resource_root() / "icon.ico"
+
+
 def ensure_dirs():
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
