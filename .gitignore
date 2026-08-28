@@ -5,6 +5,7 @@ venv/
 store.db
 backups/
 exports/
+electronstore.log
 build/
 dist/
 *.spec.bak

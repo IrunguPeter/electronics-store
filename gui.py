@@ -56,6 +56,17 @@ def _rounded_points(x1, y1, x2, y2, r):
     ]
 
 
+def _empty_row(tree, message):
+    """Insert a muted 'nothing here yet' row when a list is empty."""
+    cols = list(tree["columns"])
+    values = [""] * len(cols)
+    if values:
+        values[len(cols) // 2] = message
+    tree.delete(*tree.get_children())
+    tree.insert("", "end", iid="_empty_", values=tuple(values),
+                tags=("empty",))
+
+
 class AccentButton(tk.Canvas):
     """Rounded pill button drawn on a canvas, with hover/press animations."""
 
@@ -370,6 +381,20 @@ class SaleView(tk.Frame):
         self.total = 0.0
         self.barcode = ""
 
+        # Cashier identity banner (keeps who is ringing up in view)
+        hdr = tk.Frame(self, bg=PANEL)
+        hdr.pack(fill="x", padx=10, pady=(10, 0))
+        tk.Label(hdr, text="On duty:", bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 11)).pack(side="left", padx=(12, 4), pady=8)
+        tk.Label(hdr, text=self.app.cashier_name, bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 16, "bold")).pack(side="left", pady=5)
+        role_bg = SUCCESS if self.app.is_manager else ACCENT2
+        tk.Label(hdr, text=self.app.cashier_role, bg=role_bg, fg="white",
+                 font=("Segoe UI", 10, "bold"), padx=12, pady=3).pack(
+            side="left", padx=10)
+        tk.Label(hdr, text="Ring up a sale below", bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 10)).pack(side="right", padx=12)
+
         # Left: product picker
         left = tk.Frame(self, bg=BG)
         left.pack(side="left", fill="both", expand=True, padx=10, pady=10)
@@ -408,6 +433,7 @@ class SaleView(tk.Frame):
             relief="flat", font=("Segoe UI", 10, "bold"),
         )
         self.tree.pack(fill="both", expand=True, pady=8)
+        self.tree.tag_configure("empty", foreground=MUTED)
         self.tree.bind("<Double-Button-1>", lambda _: self._add_selected())
         self.tree.bind("<Return>", lambda _: self._add_selected())
 
@@ -474,9 +500,18 @@ class SaleView(tk.Frame):
         self._render_cart()
 
     def _search(self):
-        self.tree.delete(*self.tree.get_children())
         term = self.search_var.get().strip()
-        for p in ops.list_products(term):
+        rows = ops.list_products(term)
+        self.tree.delete(*self.tree.get_children())
+        if not rows:
+            hint = "No products found"
+            if term:
+                hint += f" for '{term}'"
+            else:
+                hint += " — add some in the Products tab"
+            _empty_row(self.tree, hint)
+            return
+        for p in rows:
             self.tree.insert("", "end", iid=str(p["id"]), values=(
                 p["id"], p["name"], fmt_money(p["price"]), p["stock_qty"],
             ))
@@ -774,6 +809,7 @@ class SalesView(tk.Frame):
                         relief="flat", font=("Segoe UI", 10, "bold"))
         self.tree.pack(fill="both", expand=True, padx=10, pady=6)
         self.tree.tag_configure("voided", foreground=MUTED)
+        self.tree.tag_configure("empty", foreground=MUTED)
         self.tree.bind("<Double-Button-1>", lambda _: self._view_receipt())
 
         info = tk.Label(
@@ -787,7 +823,11 @@ class SalesView(tk.Frame):
 
     def _refresh(self):
         self.tree.delete(*self.tree.get_children())
-        for s in ops.recent_sales(50):
+        rows = ops.recent_sales(50)
+        if not rows:
+            _empty_row(self.tree, "No sales yet — ring one up in New Sale")
+            return
+        for s in rows:
             status = "VOIDED" if s["voided"] else "OK"
             tag = "voided" if s["voided"] else ""
             self.tree.insert("", "end", iid=str(s["id"]), values=(
@@ -934,6 +974,7 @@ class ProductsView(tk.Frame):
         self.tree.pack(fill="both", expand=True, padx=10, pady=10)
         self.tree.tag_configure("low", foreground=WARN)
         self.tree.tag_configure("out", foreground=DANGER)
+        self.tree.tag_configure("empty", foreground=MUTED)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
         self._refresh()
@@ -966,7 +1007,10 @@ class ProductsView(tk.Frame):
         sel = self.tree.selection()
         if not sel:
             return
-        pid = int(sel[0])
+        try:
+            pid = int(sel[0])
+        except ValueError:
+            return
         p = ops.get_product(pid)
         if not p:
             return
@@ -1039,7 +1083,11 @@ class ProductsView(tk.Frame):
 
     def _refresh(self):
         self.tree.delete(*self.tree.get_children())
-        for p in ops.list_products():
+        rows = ops.list_products()
+        if not rows:
+            _empty_row(self.tree, "No products yet — add your first product")
+            return
+        for p in rows:
             tag = ""
             if p["stock_qty"] <= 0:
                 tag = "out"
@@ -1368,6 +1416,7 @@ class EmployeesView(tk.Frame):
         style.configure("Treeview.Heading", background=PANEL2, foreground=TEXT,
                         relief="flat", font=("Segoe UI", 10, "bold"))
         self.tree.pack(fill="both", expand=True, padx=10, pady=6)
+        self.tree.tag_configure("empty", foreground=MUTED)
 
         self._btn_frame = tk.Frame(self, bg=BG)
         self._btn_frame.pack(fill="x", padx=10, pady=6)
@@ -1376,9 +1425,14 @@ class EmployeesView(tk.Frame):
 
     def _refresh(self):
         self.tree.delete(*self.tree.get_children())
-        for e in ops.list_employees():
+        rows = ops.list_employees()
+        if not rows:
+            _empty_row(self.tree, "No staff yet — add your first cashier")
+            self._build_actions()
+            return
+        for e in rows:
             self.tree.insert("", "end", iid=str(e["id"]), values=(
-                e["id"], e["name"], e["role"], e["pin"], ""
+                e["id"], e["name"], e["role"], "••••", ""
             ))
         self._build_actions()
 
@@ -1431,7 +1485,10 @@ class EmployeesView(tk.Frame):
 
     def _on_select(self, _):
         sel = self.tree.selection()
-        self._selected_id = int(sel[0]) if sel else None
+        try:
+            self._selected_id = int(sel[0]) if sel else None
+        except ValueError:
+            self._selected_id = None
 
     def _add_employee(self):
         name = self._name_var.get().strip()
@@ -1535,6 +1592,11 @@ class LoginWindow(tk.Frame):
     @staticmethod
     def _error_hook(exc, val, tb):
         import traceback
+
+        from logutil import get_logger
+        get_logger().error(
+            "Unhandled exception", exc_info=(exc, val, tb))
+
         messagebox.showerror("ElectronStore", "Unexpected error:\n" + "".join(
             traceback.format_exception(exc, val, tb)))
         root = tk._default_root

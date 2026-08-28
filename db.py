@@ -1,6 +1,8 @@
 import sqlite3
+from contextlib import contextmanager
 
 from paths import DB_PATH
+from security import hash_pin, is_hashed
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS products (
@@ -51,6 +53,27 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+@contextmanager
+def connection():
+    """A committed connection; rolls back on error and always closes.
+
+    Layers the repeated open/close/commit dance that every operations
+    helper used to do by hand, so callers can just do:
+
+        with connection() as conn:
+            conn.execute(...)
+    """
+    conn = get_conn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _column_types(conn, table):
@@ -104,6 +127,14 @@ def _migrate(conn):
                  ("sales", "total"), ("sales", "tendered"), ("sales", "change"),
                  ("sale_items", "unit_price"), ("sale_items", "discount")]:
         money_to_int(t, c)
+
+    # Hash any plaintext PINs left by older databases.
+    for r in conn.execute("SELECT id, pin FROM employees").fetchall():
+        if not is_hashed(r["pin"]):
+            conn.execute(
+                "UPDATE employees SET pin=? WHERE id=?",
+                (hash_pin(r["pin"]), r["id"]),
+            )
 
 
 def init_db():

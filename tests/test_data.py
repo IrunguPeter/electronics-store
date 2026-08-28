@@ -6,6 +6,7 @@ import pytest
 
 import db
 import operations as ops
+from security import is_hashed, verify_pin
 
 
 @pytest.fixture()
@@ -164,3 +165,29 @@ def test_sales_by_cashier_and_end_of_day(fresh_db):
     assert eod["methods"]["card"]["val"] == 2000
     assert "mobile" not in eod["methods"]
     assert eod["voids"] == 1 and eod["void_value"] == 2000
+
+
+def test_pin_stored_hashed_not_plaintext(fresh_db):
+    ops.add_employee("Hank", "Employee", "5555")
+    rows = db.get_conn().execute("SELECT pin FROM employees").fetchall()
+    stored = rows[0]["pin"]
+    assert stored != "5555"
+    assert is_hashed(stored)
+    assert verify_pin("5555", stored)
+    assert not verify_pin("0000", stored)
+
+
+def test_legacy_plaintext_pin_migrated_to_hash(fresh_db):
+    conn = db.get_conn()
+    conn.execute(
+        "INSERT INTO employees (name, role, pin) VALUES (?, ?, ?)",
+        ("Legacy", "Employee", "1234"),
+    )
+    conn.commit()
+    conn.close()
+    assert ops.auth_employee("1234") is not None  # works pre-migration too
+    db.init_db()  # re-runs _migrate -> hashes plaintext pins
+    [row] = db.get_conn().execute("SELECT pin FROM employees").fetchall()
+    assert is_hashed(row["pin"])
+    assert row["pin"] != "1234"
+    assert ops.auth_employee("1234") is not None

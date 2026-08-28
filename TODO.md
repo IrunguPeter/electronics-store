@@ -23,20 +23,23 @@ Tick each off as it is completed. The **top-3** money/ops items are already done
 
 ## 🟢 UX / polish
 
-- [ ] **Prominent staff name & role header** in the New Sale view (status bar
-      already shows it, but make cashier identity clearer while ringing up).
-- [ ] **Empty-state messaging** — show friendly hints when product/sales lists
-      are empty (instead of a blank tree).
+- [x] **Prominent staff name & role header** in the New Sale view (a banner
+      under the nav shows the on-duty cashier's name and a coloured role badge
+      while ringing up; the status bar still shows it too).
+- [x] **Empty-state messaging** — friendly hints now appear when the product
+      picker, product list, sales list, or staff list is empty (instead of a
+      blank tree).
 
 ## 🟣 Tech / security
 
-- [ ] **Hash stored PINs** — PINs are stored in plaintext in `store.db`. For a
-      local POS this is acceptable, but hashing (e.g. PBKDF2/scrypt) would be
-      safer. Requires a scheme-version migration.
-- [ ] **Exception log file** — central error hook exists (`_error_hook`); write
-      stack traces to a rotating log for diagnosis on the customer's machine.
-- [ ] **Repository-layer cleanup** — `get_conn()` is reopened in every helper;
-      consider a small data-access layer or context manager (non-urgent).
+- [x] **Hash stored PINs** — PINs are now PBKDF2-SHA256 hashed with a
+      per-PIN salt (`security.py`). Old plaintext PINs are migrated on startup
+      (`db._migrate`), and duplicate-PIN checks now compare hashes.
+- [x] **Exception log file** — the central error hook writes stack traces to a
+      rotating `electronstore.log` (`logutil.py`) for diagnosis on the
+      customer's machine.
+- [x] **Repository-layer cleanup** — `db.connection()` context manager handles
+      open/commit/rollback/close; every operations helper uses it now.
 
 ---
 
@@ -51,3 +54,6 @@ Tick each off as it is completed. The **top-3** money/ops items are already done
 - [x] Pinned requirements
 - [x] Per-staff and end-of-day reports
 - [x] Payment-method validation
+- [x] Staff name & role banner in New Sale (w/ empty-state hints)
+- [x] Hashed PINs (PBKDF2 + migration), rotating exception log
+- [x] Repository-layer cleanup (`db.connection()` context manager)

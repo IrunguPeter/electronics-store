@@ -27,6 +27,7 @@ a = Analysis(
     datas=datas,
     hiddenimports=hiddenimports + [
         "db", "paths", "backup", "export", "operations",
+        "security", "logutil",
     ],
     hookspath=[],
     hooksconfig={},

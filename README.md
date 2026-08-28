@@ -200,6 +200,10 @@ Tables:
 All prices are stored as **whole Kenya Shillings (KES)** (integer values), so
 money stays exact — no floating-point drift.
 
+Staff PINs are stored as **PBKDF2 hashes** with a per-PIN salt — never in
+plaintext. Unhandled errors are written to a rotating `electronstore.log`
+(next to `store.db`) for diagnosis.
+
 > `store.db`, `backups/`, and `exports/` are git-ignored so your real shop data
 > is never accidentally pushed to GitHub.
 
@@ -213,6 +217,8 @@ electronics-store/
 ├── gui.py           # Tkinter application (login, sale, products, reports, sales, employees)
 ├── operations.py    # Database operations (sales, products, reports)
 ├── db.py            # Schema, connection and migrations
+├── security.py      # PBKDF2-SHA256 PIN hashing (no plaintext PINs stored)
+├── logutil.py       # Rotating exception log (electronstore.log)
 ├── backup.py        # SQLite hot-backup + Google Drive upload (rclone)
 ├── export.py        # CSV and PDF report export
 ├── paths.py         # Central path resolution (runs from source or .exe)
