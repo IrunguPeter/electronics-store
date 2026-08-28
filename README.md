@@ -158,7 +158,7 @@ All prices are in **Kenya Shillings (KES)**.
 ```
 electronics-store/
 ├── main.py          # Entry point — launches the GUI
-├── gui.py           # Tkinter application (login, sale, products, reports)
+├── gui.py           # Tkinter application (login, sale, products, reports, employees)
 ├── operations.py    # Database operations (sales, products, reports)
 ├── db.py            # Schema, connection and migrations
 ├── backup.py        # SQLite hot-backup + Google Drive upload (rclone)
