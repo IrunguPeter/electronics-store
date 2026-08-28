@@ -23,14 +23,17 @@ required to operate the shop.
   **PDF**.
 - **☁️ Google Drive backups** — one-click (or scheduled) safe backups of your data
   to Google Drive, so you never lose sales records.
+- **👥 Staff & roles** — Manager and Employee roles. Managers can add/edit/delete
+  staff, change roles, and reset PINs; Employees can sell, manage products, and
+  view reports.
 - **🔒 PIN login** — simple staff access control.
 - **🎨 Polished UI** — dark theme with animated buttons and charts.
 
 ## Screenshots
 
-| New Sale | Products | Reports |
-| :-: | :-: | :-: |
-| *(add screenshots here)* | | |
+| New Sale | Products | Reports | Employees |
+| :-: | :-: | :-: | :-: |
+| *(add screenshots here)* | | | |
 
 ---
 
@@ -83,7 +86,8 @@ sudo apt install python3-tk      # or: sudo dnf install python3-tkinter
 ## Usage
 
 ### Logging in
-Enter your PIN on the login screen. (Default: `1234`.)
+Enter your PIN on the login screen. (Default: `1234`.) You can log out with the
+**Logout** link in the top-right of the main window.
 
 ### Recording a sale
 1. In the **New Sale** tab, search or click a product.
@@ -100,6 +104,12 @@ Rows turn **amber** when stock is low and **red** when out of stock.
 The **Reports** tab shows revenue, gross profit, and margin for the current data,
 a daily revenue chart, a category breakdown, and your best-selling products.
 Use **Export CSV** or **Export PDF** to save a report.
+
+### Managing staff
+The **Employees** tab lists everyone with a PIN. **Managers** can add new staff,
+promote/demote between Manager and Employee, reset PINs, and delete accounts.
+**Employees** can view the list but cannot change it. The app protects against
+deleting or demoting the very last manager.
 
 ---
 

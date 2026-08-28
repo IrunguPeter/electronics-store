@@ -1,4 +1,3 @@
-import getpass
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -215,7 +214,7 @@ class NumberButton(tk.Button):
 class Toplevel(tk.Frame):
     """Main dashboard with a top nav bar, animated tab switching, and status bar."""
 
-    def __init__(self, master, cashier_id, cashier_name):
+    def __init__(self, master, cashier_id, cashier_name, cashier_role):
         super().__init__(master, bg=BG)
         master.title("ElectronStore POS")
         master.geometry("1100x700")
@@ -224,6 +223,8 @@ class Toplevel(tk.Frame):
 
         self.cashier_id = cashier_id
         self.cashier_name = cashier_name
+        self.cashier_role = cashier_role
+        self.is_manager = cashier_role == "Manager"
         self.current_tab = None
 
         self._build_nav()
@@ -232,7 +233,12 @@ class Toplevel(tk.Frame):
         self.container = tk.Frame(self, bg=BG)
         self.container.pack(fill="both", expand=True)
 
-        self.tabs = {"sale": SaleView, "products": ProductsView, "reports": ReportsView}
+        self.tabs = {
+            "sale": SaleView,
+            "products": ProductsView,
+            "reports": ReportsView,
+            "employees": EmployeesView,
+        }
         self.show("sale")
 
         self.after(2000, self._flash_status, f"Welcome, {cashier_name}!")
@@ -253,6 +259,7 @@ class Toplevel(tk.Frame):
             ("sale", "New Sale"),
             ("products", "Products"),
             ("reports", "Reports"),
+            ("employees", "Employees"),
         ]:
             b = tk.Label(
                 nav, text="  " + label + "  ", bg=PANEL, fg=MUTED,
@@ -265,11 +272,19 @@ class Toplevel(tk.Frame):
             self.nav_btns[key] = b
             self.nav_btns[key].name = key
 
+        # Logout on right
+        logout = tk.Label(
+            nav, text="  Logout  ", bg=PANEL, fg=DANGER,
+            font=("Segoe UI", 11, "bold"), cursor="hand2",
+        )
+        logout.pack(side="right", padx=(0, 16), pady=14)
+        logout.bind("<Button-1>", lambda _: self._logout())
+
         # Backup button on right
         self.backup_btn = AccentButton(
             nav, text="Backup", command=self.do_backup, bg=SUCCESS,
         )
-        self.backup_btn.pack(side="right", padx=20)
+        self.backup_btn.pack(side="right", padx=8)
 
         # Separator line under nav
         line = tk.Frame(self, bg=ACCENT2, height=2)
@@ -285,7 +300,7 @@ class Toplevel(tk.Frame):
         )
         self.status.pack(side="left", padx=12)
         tk.Label(
-            bar, text=f"Cashier: {self.cashier_name}",
+            bar, text=f"{self.cashier_name}  ({self.cashier_role})",
             bg=PANEL, fg=ACCENT, font=("Segoe UI", 10, "bold"),
         ).pack(side="right", padx=12)
 
@@ -332,6 +347,13 @@ class Toplevel(tk.Frame):
             self.after(0, self._flash_status, f"Backup saved: {path} — {msg}")
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _logout(self):
+        self.master.destroy()
+        root = tk.Tk()
+        root.report_callback_exception = LoginWindow._error_hook
+        LoginWindow(root)
+        root.mainloop()
 
 
 # --------------------------------------------------------------------------
@@ -837,6 +859,161 @@ class ReportsView(tk.Frame):
             messagebox.showerror("PDF", f"Could not build PDF: {e}")
 
 
+# --------------------------------------------------------------------------
+# EMPLOYEES VIEW
+# --------------------------------------------------------------------------
+class EmployeesView(tk.Frame):
+    def __init__(self, master, app):
+        super().__init__(master, bg=BG)
+        self.app = app
+
+        top = tk.Frame(self, bg=BG)
+        top.pack(fill="x", padx=10, pady=(10, 4))
+
+        tk.Label(top, text="Staff", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 14, "bold")).pack(side="left")
+
+        if not app.is_manager:
+            tk.Label(top, text="Only managers can add or edit staff.",
+                     bg=BG, fg=WARN, font=("Segoe UI", 10)).pack(side="left", padx=16)
+
+        # Columns
+        cols = ("id", "name", "role", "pin", "actions")
+        self.tree = ttk.Treeview(self, columns=cols, show="headings")
+        for c, w, txt in [("id", 40, "ID"), ("name", 200, "Name"),
+                          ("role", 110, "Role"), ("pin", 90, "PIN"),
+                          ("actions", 240, "")]:
+            self.tree.heading(c, text=txt)
+            self.tree.column(c, width=w, anchor="w")
+        self.tree.column("id", anchor="center")
+        self.tree.column("pin", anchor="center")
+
+        style = ttk.Style()
+        style.configure("Treeview", background=PANEL, fieldbackground=PANEL,
+                        foreground=TEXT, rowheight=32, borderwidth=0)
+        style.configure("Treeview.Heading", background=PANEL2, foreground=TEXT,
+                        relief="flat", font=("Segoe UI", 10, "bold"))
+        self.tree.pack(fill="both", expand=True, padx=10, pady=6)
+
+        self._btn_frame = tk.Frame(self, bg=BG)
+        self._btn_frame.pack(fill="x", padx=10, pady=6)
+        self._selected_id = None
+        self._refresh()
+
+    def _refresh(self):
+        self.tree.delete(*self.tree.get_children())
+        for e in ops.list_employees():
+            self.tree.insert("", "end", iid=str(e["id"]), values=(
+                e["id"], e["name"], e["role"], e["pin"], ""
+            ))
+        self._build_actions()
+
+    def _build_actions(self):
+        for c in self._btn_frame.winfo_children():
+            c.destroy()
+
+        if not self.app.is_manager:
+            tk.Label(self._btn_frame, text="Viewing only.",
+                     bg=BG, fg=MUTED, font=("Segoe UI", 11)).pack(side="left")
+            return
+
+        # Add-employee form
+        tk.Label(self._btn_frame, text="Add staff:", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 11)).pack(side="left")
+        self._name_var = tk.StringVar()
+        RoundedEntry(self._btn_frame, textvariable=self._name_var, bg=PANEL,
+                     fg=TEXT, font=("Segoe UI", 11), width_chars=10).pack(
+            side="left", padx=4)
+
+        self._role_var = tk.StringVar(value="Employee")
+        role = ttk.Combobox(self._btn_frame, textvariable=self._role_var,
+                            values=["Manager", "Employee"], state="readonly",
+                            width=8)
+        role.pack(side="left", padx=4)
+
+        self._pin_var = tk.StringVar()
+        RoundedEntry(self._btn_frame, textvariable=self._pin_var, bg=PANEL,
+                     fg=TEXT, font=("Segoe UI", 11), width_chars=6,
+                     show="*").pack(side="left", padx=4)
+
+        AccentButton(self._btn_frame, text="Add",
+                     command=self._add_employee).pack(side="left", padx=4)
+
+        # Actions on selection
+        tk.Label(self._btn_frame, text="|  Selected:", bg=BG, fg=MUTED,
+                 font=("Segoe UI", 11)).pack(side="left", padx=(16, 4))
+        AccentButton(self._btn_frame, text="Set Manager",
+                     command=lambda: self._set_role("Manager")).pack(
+            side="left", padx=3)
+        AccentButton(self._btn_frame, text="Set Employee",
+                     command=lambda: self._set_role("Employee")).pack(
+            side="left", padx=3)
+        AccentButton(self._btn_frame, text="Reset PIN",
+                     command=self._reset_pin).pack(side="left", padx=3)
+        AccentButton(self._btn_frame, text="Delete", bg=DANGER,
+                     command=self._delete).pack(side="left", padx=3)
+
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+
+    def _on_select(self, _):
+        sel = self.tree.selection()
+        self._selected_id = int(sel[0]) if sel else None
+
+    def _add_employee(self):
+        name = self._name_var.get().strip()
+        role = self._role_var.get()
+        pin = self._pin_var.get().strip()
+        if not name or not pin:
+            messagebox.showerror("Add staff", "Name and PIN are required.")
+            return
+        if ops.employee_with_pin_exists(pin):
+            messagebox.showerror("Add staff", "That PIN is already in use.")
+            return
+        ok, msg = ops.add_employee(name, role, pin)
+        messagebox.showinfo("Add staff", msg)
+        self._name_var.set("")
+        self._pin_var.set("")
+        self._refresh()
+
+    def _set_role(self, role):
+        if self._selected_id is None:
+            self.app._flash_status("Select an employee first")
+            return
+        if self._selected_id == self.app.cashier_id:
+            messagebox.showerror("Role", "You cannot change your own role.")
+            return
+        ok, msg = ops.update_employee_role(self._selected_id, role)
+        messagebox.showinfo("Role", msg)
+        self._refresh()
+
+    def _reset_pin(self):
+        if self._selected_id is None:
+            self.app._flash_status("Select an employee first")
+            return
+        import tkinter.simpledialog as sd
+        new_pin = sd.askstring(
+            "Reset PIN", "New PIN:", show="*", parent=self)
+        if new_pin is None:
+            return
+        ok, msg = ops.reset_employee_pin(self._selected_id, new_pin.strip())
+        messagebox.showinfo("Reset PIN", msg)
+        self._refresh()
+
+    def _delete(self):
+        if self._selected_id is None:
+            self.app._flash_status("Select an employee first")
+            return
+        if self._selected_id == self.app.cashier_id:
+            messagebox.showerror("Delete", "You cannot delete your own account.")
+            return
+        if not messagebox.askyesno(
+                "Delete", "Delete this employee? This cannot be undone."):
+            return
+        ok, msg = ops.delete_employee(self._selected_id)
+        messagebox.showinfo("Delete", msg)
+        self._refresh()
+
+
 def run_gui():
     init_db()
     conn = ops.get_conn()
@@ -849,14 +1026,7 @@ def run_gui():
     root.title("ElectronStore POS - Login")
     root.geometry("420x260")
     root.resizable(False, False)
-
-    def report_error(exc, val, tb):
-        import traceback
-        messagebox.showerror("ElectronStore", "Unexpected error:\n" + "".join(
-            traceback.format_exception(exc, val, tb)))
-        root.destroy()
-
-    root.report_callback_exception = report_error
+    root.report_callback_exception = LoginWindow._error_hook
 
     LoginWindow(root)
     root.mainloop()
@@ -888,6 +1058,15 @@ class LoginWindow(tk.Frame):
                                font=("Segoe UI", 10))
         self.status.pack()
 
+    @staticmethod
+    def _error_hook(exc, val, tb):
+        import traceback
+        messagebox.showerror("ElectronStore", "Unexpected error:\n" + "".join(
+            traceback.format_exception(exc, val, tb)))
+        root = tk._default_root
+        if root:
+            root.destroy()
+
     def try_login(self):
         emp = ops.auth_employee(self.pin.get())
         if not emp:
@@ -899,7 +1078,9 @@ class LoginWindow(tk.Frame):
         self.root.title("ElectronStore POS")
         self.root.geometry("1100x700")
         self.root.resizable(True, True)
-        Toplevel(self.root, emp["id"], emp["name"]).pack(fill="both", expand=True)
+        Toplevel(self.root, emp["id"], emp["name"], emp["role"]).pack(
+            fill="both", expand=True
+        )
 
 
 if __name__ == "__main__":

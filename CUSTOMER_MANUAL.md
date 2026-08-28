@@ -17,20 +17,23 @@ sales, add products, check reports, and keep your data backed up.*
 ### Logging in (PIN)
 - A login screen appears asking for your **PIN** (a personal number).
 - Type your PIN and press **Enter** or click **Login**.
-- **First time using the app?** The default PIN is **`1234`**. You should change
-  it as soon as convenient (see section 8).
+- **First time using the app?** The default PIN is **`1234`**. Ask the owner to
+  add real staff accounts (see section 8) and set a PIN you will remember.
+- When you are done, click **Logout** (top-right) so the next person logs in
+  with their own PIN.
 
 ---
 
 ## 2. The main screen
 
-After logging in you will see the main window with three tabs at the top:
+After logging in you will see the main window with four tabs at the top:
 
 - **New Sale** — where you ring up customers.
 - **Products** — where you add and check your stock.
 - **Reports** — where you see your sales and profit.
+- **Employees** — where staff accounts are managed (managers only).
 
-There is also a green **Backup** button at the top right.
+There is also a green **Backup** button at the top right, and a **Logout** link.
 
 ---
 
@@ -126,15 +129,39 @@ back it up regularly to your **Google Drive**.
 
 ---
 
-## 8. Changing staff details / PINs
+## 8. Managing staff (Employees tab)
 
-> **Note:** Currently staff accounts are managed by whoever administers the
-> program (the database file). The app includes one default manager.
+The **Employees** tab is where you manage staff accounts. It is available to
+everyone, but only **Managers** can make changes.
 
-To add a new staff member or change a PIN, an administrator needs to use the
-database. The simplest safe way is to ask the person who set up the program, or
-a developer, to update the `employees` table. *(A staff-management screen is a
-planned improvement.)*
+### Roles
+- **Manager** — can do everything, including managing staff.
+- **Employee** — can record sales, add products, and view reports, but **cannot**
+  add, edit, or delete staff.
+
+### Adding a new staff member (Manager only)
+1. Go to the **Employees** tab.
+2. In the **Add staff** row, type their **name**, choose a **role**
+   (Manager or Employee), and set a **PIN** (a secret number they will log in with).
+3. Click **Add**.
+
+> Each PIN must be unique. If you see "that PIN is already in use", pick another.
+
+### Changing a role (Manager only)
+1. Click a staff member in the list.
+2. Click **Set Manager** or **Set Employee**.
+3. You cannot change your own role, and you cannot demote the last manager.
+
+### Resetting a forgotten PIN (Manager only)
+1. Click the staff member in the list.
+2. Click **Reset PIN** and type a new PIN.
+
+### Removing a staff member (Manager only)
+1. Click the staff member in the list.
+2. Click **Delete** and confirm.
+
+> The app will not let you delete or demote the **only** manager, so you can
+> never lock yourself out completely.
 
 ---
 
@@ -169,7 +196,9 @@ planned improvement.)*
 | See profit | Reports | Revenue / Profit / Margin cards |
 | Export report | Reports | Export CSV or Export PDF |
 | Back up | Backup button (top right) | click it |
-| Change PIN | ask administrator | *(planned feature)* |
+| Add staff | Employees (Manager) | name + role + PIN → Add |
+| Reset a PIN | Employees (Manager) | select → Reset PIN |
+| Log out | Logout link (top right) | click it |
 
 ---
 

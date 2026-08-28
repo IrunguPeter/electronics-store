@@ -105,11 +105,25 @@ def create_sale(cashier_id, payment_method, items):
 
 def add_employee(name, role, pin):
     conn = get_conn()
-    conn.execute(
-        "INSERT INTO employees (name, role, pin) VALUES (?, ?, ?)", (name, role, pin)
-    )
-    conn.commit()
+    try:
+        conn.execute(
+            "INSERT INTO employees (name, role, pin) VALUES (?, ?, ?)",
+            (name, role, pin),
+        )
+        conn.commit()
+        return True, "Employee added"
+    except sqlite3.IntegrityError:
+        return False, "Invalid or duplicate PIN"
+    finally:
+        conn.close()
+
+
+def list_employees():
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM employees ORDER BY role DESC, name").fetchall()
     conn.close()
+    return rows
 
 
 def auth_employee(pin):
@@ -117,6 +131,72 @@ def auth_employee(pin):
     row = conn.execute("SELECT * FROM employees WHERE pin=?", (pin,)).fetchone()
     conn.close()
     return row
+
+
+def manager_count():
+    conn = get_conn()
+    n = conn.execute(
+        "SELECT COUNT(*) FROM employees WHERE role='Manager'").fetchone()[0]
+    conn.close()
+    return n
+
+
+def employee_with_pin_exists(pin, exclude_id=None):
+    conn = get_conn()
+    if exclude_id:
+        row = conn.execute(
+            "SELECT id FROM employees WHERE pin=? AND id<>?",
+            (pin, exclude_id)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT id FROM employees WHERE pin=?", (pin,)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def update_employee_role(employee_id, role):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM employees WHERE id=?", (employee_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, "Employee not found"
+    # Prevent removing the last manager
+    if row["role"] == "Manager" and role != "Manager" and manager_count() <= 1:
+        conn.close()
+        return False, "Cannot demote the last manager"
+    conn.execute("UPDATE employees SET role=? WHERE id=?", (role, employee_id))
+    conn.commit()
+    conn.close()
+    return True, "Role updated"
+
+
+def reset_employee_pin(employee_id, new_pin):
+    conn = get_conn()
+    if employee_with_pin_exists(new_pin, exclude_id=employee_id):
+        conn.close()
+        return False, "That PIN is already in use"
+    conn.execute(
+        "UPDATE employees SET pin=? WHERE id=?", (new_pin, employee_id))
+    conn.commit()
+    conn.close()
+    return True, "PIN updated"
+
+
+def delete_employee(employee_id):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM employees WHERE id=?", (employee_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, "Employee not found"
+    if row["role"] == "Manager" and manager_count() <= 1:
+        conn.close()
+        return False, "Cannot delete the last manager"
+    conn.execute("DELETE FROM employees WHERE id=?", (employee_id,))
+    conn.commit()
+    conn.close()
+    return True, "Employee deleted"
 
 
 def sales_report():
