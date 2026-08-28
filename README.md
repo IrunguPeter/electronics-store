@@ -1,81 +1,172 @@
-# Electronics Store POS
+<div align="center">
 
-A desktop POS (point-of-sale) for an electronics store. Tracks sales, stock, and
-profit, with automatic backup to Google Drive via rclone. Currency is **Kenya
-Shillings (KES)**. Works on **Windows**, macOS, and Linux.
+# ElectronStore POS
+
+**A point-of-sale desktop app for an electronics store.**
+
+Tracks sales, stock, and profit in **Kenya Shillings (KES)**, with automatic
+backups to **Google Drive**. Built with Python, Tkinter, and SQLite — no internet
+required to operate the shop.
+
+</div>
+
+---
+
+## Features
+
+- **🛒 Point of Sale** — search products, add to cart, set quantities, and charge.
+  Choose payment method (cash / card / mobile). Stock is deducted automatically.
+- **📦 Product management** — add products with a product code, category, price,
+  and cost. Search stock and get low-stock alerts.
+- **📊 Reports** — a dashboard with revenue, gross profit, and margin, plus a
+  daily revenue chart, category breakdown, and best sellers. Export to **CSV** or
+  **PDF**.
+- **☁️ Google Drive backups** — one-click (or scheduled) safe backups of your data
+  to Google Drive, so you never lose sales records.
+- **🔒 PIN login** — simple staff access control.
+- **🎨 Polished UI** — dark theme with animated buttons and charts.
+
+## Screenshots
+
+| New Sale | Products | Reports |
+| :-: | :-: | :-: |
+| *(add screenshots here)* | | |
+
+---
 
 ## Requirements
-- Python 3.8+
-- [rclone](https://rclone.org/downloads/) (for Google Drive backup) — optional but recommended
-- `matplotlib` and `reportlab` (`pip install -r requirements.txt`)
-- Tkinter (bundled with Python on Windows; on Linux install `python3-tk`)
 
-## Setup
+- **Python 3.8 or newer**
+- **Tkinter** — bundled with Python on Windows/macOS; on Linux install `python3-tk`
+- **matplotlib** and **reportlab** — `pip install -r requirements.txt`
+- **[rclone](https://rclone.org/downloads/)** — optional, only needed for
+  Google Drive backups
 
-### 1. Install rclone (Windows)
+## Quick Start
 
-Two easy ways:
+```bash
+# 1. Clone the repo
+git clone https://github.com/IrunguPeter/electronics-store.git
+cd electronics-store
 
-```powershell
-# Option A: winget (fastest)
-winget install rclone
-
-# Option B: manual
-# - Download the Windows .zip from https://rclone.org/downloads/
-# - Extract rclone.exe to C:\rclone\ (or anywhere)
-# - Add that folder to your PATH
-```
-
-### 2. Link rclone to Google Drive (one-time)
-
-```powershell
-rclone config
-```
-- Select **n** to make a **new remote**
-- Name it exactly **`gdrive`**
-- Choose **drive** for the storage type
-- Follow the prompts — it opens your browser to log in to Google and grant access
-- Accept all defaults after that
-
-Create the backup folder:
-```powershell
-rclone mkdir gdrive:store-backups
-```
-
-### 3. Run the app
-
-```powershell
+# 2. Install Python dependencies
 pip install -r requirements.txt
+
+# 3. Run the app
 python main.py
 ```
 
-The GUI has three screens:
-- **New Sale** — search/pick products, set quantity, charge (auto-deducts stock)
-- **Products** — add products (name, category, product code, price, cost), search, low-stock alerts
-- **Reports** — daily revenue chart, category share, top sellers, profit & margin; export to CSV or PDF
+> **First run:** if no staff account exists, the app creates a default
+> **Manager** with PIN **`1234`**. Log in with that to get started.
 
-Back up to your Drive any time with the **Backup** button.
+### On Linux
 
-## Automatic daily backups (Windows Task Scheduler)
+```bash
+sudo apt install python3-tk      # or: sudo dnf install python3-tkinter
+```
 
-1. Open **Task Scheduler** → **Create Basic Task**
-2. Name it `Store Backup`
-3. Trigger: **Daily** at your preferred time
-4. Action: **Start a program**
-   - Program: `python`
-   - Add arguments: `C:\path\to\electronics-store\manual_backup.py`
-5. Finish. It now backs up to Drive every day.
+### Google Drive backups (optional)
 
-> The first staff member to run the app logs in with PIN 1234 (change this and
-> add real staff via the Employees menu).
+1. Install rclone:
+   - **Windows:** `winget install rclone` (or download from
+     [rclone.org](https://rclone.org/downloads/))
+   - **Linux/macOS:** `sudo apt install rclone`
+2. Link your Google account (one-time):
+   ```bash
+   rclone config          # name the remote exactly "gdrive"
+   rclone mkdir gdrive:store-backups
+   ```
+3. Back up any time with the **Backup** button in the app.
 
-## How backups work
-- Uses SQLite's hot-backup API — never touches the live DB in a way that could
-  corrupt it.
-- Local copies go in `./backups/`
-- A copy is uploaded to `gdrive:store-backups/` in your Google Drive.
+---
 
-## Data
-Stored in `store.db` (SQLite). Tables: `products` (with `code`, price, cost, stock),
-`employees`, `sales`, `sale_items`. Stock is decremented automatically on each sale.
-All prices are in Kenya Shillings (KES).
+## Usage
+
+### Logging in
+Enter your PIN on the login screen. (Default: `1234`.)
+
+### Recording a sale
+1. In the **New Sale** tab, search or click a product.
+2. Set the **Qty** and click **Add to Cart** (or double-click a product).
+3. Choose a **payment method** and click **Charge**.
+4. Stock is updated automatically and a success confirmation is shown.
+
+### Managing products
+In the **Products** tab, fill in the details and click **Add Product**:
+name, category, product code, selling price, cost price, and stock quantity.
+Rows turn **amber** when stock is low and **red** when out of stock.
+
+### Viewing reports
+The **Reports** tab shows revenue, gross profit, and margin for the current data,
+a daily revenue chart, a category breakdown, and your best-selling products.
+Use **Export CSV** or **Export PDF** to save a report.
+
+---
+
+## Backups
+
+- Uses SQLite's hot-backup API, so the live database is never locked or corrupted.
+- A manual **Backup** button saves to `./backups/` and uploads a copy to
+  `gdrive:store-backups/` in Google Drive.
+- For fully automatic backups, schedule `manual_backup.py`:
+  - **Windows:** use Task Scheduler (see below)
+  - **Linux/macOS:** add a cron job
+    ```
+    0 23 * * * python3 /path/to/electronics-store/manual_backup.py
+    ```
+
+### Automatic backups on Windows (Task Scheduler)
+
+1. Open **Task Scheduler** → **Create Basic Task**.
+2. Name it `Store Backup`, trigger **Daily**.
+3. Action **Start a program**: program `python`, argument `C:\path\to\electronics-store\manual_backup.py`.
+4. Finish.
+
+---
+
+## Data & Storage
+
+Everything is stored in a single SQLite file, **`store.db`**, in the app folder.
+Tables:
+
+| Table | Purpose |
+| ----- | ------- |
+| `products` | product code, name, category, price, cost, stock |
+| `employees` | staff names, roles, and PINs |
+| `sales` | each sale: date, cashier, total, payment method |
+| `sale_items` | line items, quantities, unit prices, discounts |
+
+All prices are in **Kenya Shillings (KES)**.
+
+> `store.db`, `backups/`, and `exports/` are git-ignored so your real shop data
+> is never accidentally pushed to GitHub.
+
+---
+
+## Project Structure
+
+```
+electronics-store/
+├── main.py          # Entry point — launches the GUI
+├── gui.py           # Tkinter application (login, sale, products, reports)
+├── operations.py    # Database operations (sales, products, reports)
+├── db.py            # Schema, connection and migrations
+├── backup.py        # SQLite hot-backup + Google Drive upload (rclone)
+├── export.py        # CSV and PDF report export
+├── manual_backup.py # Standalone script for scheduled backups
+└── requirements.txt
+```
+
+---
+
+## Troubleshooting
+
+- **"Tkinter not found"** — install it (see Requirements / Linux section).
+- **Backup button says rclone not found** — install rclone and run
+  `rclone config` to link your Google account.
+- **PDF export fails** — make sure `reportlab` is installed
+  (`pip install reportlab`); the app falls back to CSV otherwise.
+
+## License
+
+MIT
