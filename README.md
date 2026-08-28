@@ -36,9 +36,9 @@ required to operate the shop.
 
 ## Screenshots
 
-| New Sale | Products | Reports | Employees |
-| :-: | :-: | :-: | :-: |
-| *(add screenshots here)* | | | |
+| New Sale | Products | Reports | Sales | Employees |
+| :-: | :-: | :-: | :-: | :-: |
+| *(add screenshots here)* | | | | |
 
 ---
 
@@ -179,7 +179,7 @@ money stays exact — no floating-point drift.
 ```
 electronics-store/
 ├── main.py          # Entry point — launches the GUI
-├── gui.py           # Tkinter application (login, sale, products, reports, employees)
+├── gui.py           # Tkinter application (login, sale, products, reports, sales, employees)
 ├── operations.py    # Database operations (sales, products, reports)
 ├── db.py            # Schema, connection and migrations
 ├── backup.py        # SQLite hot-backup + Google Drive upload (rclone)
@@ -201,7 +201,8 @@ python -m pytest tests/
 ```
 
 Tests cover integer money handling, sale totals and change, stock deduction,
-void/restock, last-manager protection, and duplicate PIN rejection.
+void/restock, product editing and payment validation, per-staff and end-of-day
+reports, last-manager protection, and duplicate PIN rejection.
 
 ---
 

@@ -103,8 +103,8 @@ When you get new stock, add it here so you can sell it.
 - **Red** row = out of stock.
 
 **Editing, restocking, or deleting a product:**
-1. **Click the product** in the list on the right. Its details load into the
-   form above.
+1. **Click the product** in the list at the bottom (above the low-stock
+   colouring). Its details load into the form at the top.
 2. To change details (name, category, code, price, or cost), edit the fields and
    click **Save Changes**.
 3. To add or remove stock, click **Restock** and type how many to add (a
